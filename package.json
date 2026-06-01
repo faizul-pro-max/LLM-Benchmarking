@@ -1,0 +1,13 @@
+{
+  "name": "llm-bench",
+  "private": true,
+  "workspaces": ["frontend", "backend/api", "backend/consumers"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w frontend\" \"npm run dev -w backend/api\" \"npm run dev -w backend/consumers\"",
+    "build": "npm run build -w frontend && npm run build -w backend/api && npm run build -w backend/consumers",
+    "health": "curl -s http://localhost:3001/health | jq"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

@@ -1,0 +1,62 @@
+import 'dotenv/config'
+import express from 'express'
+import http from 'http'
+import cors from 'cors'
+import { Server } from 'socket.io'
+import { runMigrations } from './db/schema'
+import { loadPrompts } from './utils/sheetsLoader'
+import { requestLogger } from './middleware/requestLogger'
+import { errorHandler } from './middleware/errorHandler'
+import healthRouter from './routes/health'
+import runRouter from './routes/run'
+import resultsRouter from './routes/results'
+import experimentsRouter from './routes/experiments'
+import promptsRouter from './routes/prompts'
+import type { ServerToClientEvents, ClientToServerEvents } from './types/socket'
+
+const PORT         = parseInt(process.env.PORT ?? '3001', 10)
+const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:7755'
+
+const app    = express()
+const server = http.createServer(app)
+const io     = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
+  cors: { origin: FRONTEND_URL, methods: ['GET', 'POST'] },
+})
+
+// Export io for use in routes
+let _io: typeof io
+export function getIo() { return _io }
+
+app.use(cors({ origin: FRONTEND_URL }))
+app.use(express.json())
+app.use(requestLogger)
+
+app.use('/health', healthRouter)
+app.use('/run', runRouter)
+app.use('/results', resultsRouter)
+app.use('/experiments', experimentsRouter)
+app.use('/prompts', promptsRouter)
+app.use(errorHandler)
+
+io.on('connection', (socket) => {
+  console.log({ msg: 'client connected', id: socket.id, ts: Date.now() })
+
+  socket.on('disconnect', () => {
+    console.log({ msg: 'client disconnected', id: socket.id, ts: Date.now() })
+  })
+})
+
+async function start() {
+  runMigrations()
+  await loadPrompts()
+  _io = io
+
+  server.listen(PORT, () => {
+    console.log({ msg: 'server started', port: PORT, frontend: FRONTEND_URL, ts: Date.now() })
+  })
+}
+
+start().catch((err) => {
+  console.error({ msg: 'startup failed', err: String(err) })
+  process.exit(1)
+})

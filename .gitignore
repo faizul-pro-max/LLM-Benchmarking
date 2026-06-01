@@ -1,0 +1,26 @@
+# Secrets & tokens
+git.token
+.env
+secrets/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# SQLite database
+*.db
+data/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
