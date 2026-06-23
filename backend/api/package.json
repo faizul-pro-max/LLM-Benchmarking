@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "ts-node --watch src/server.ts",
+    "dev": "DOTENV_CONFIG_PATH=../../.env ts-node src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js"
   },
