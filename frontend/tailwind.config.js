@@ -4,11 +4,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#0f1117',
-        panel: '#1a1d27',
-        card: '#1e2130',
-        border: '#2a2d3e',
-        muted: '#6b7280',
+        bg: 'rgb(var(--color-bg) / <alpha-value>)',
+        panel: 'rgb(var(--color-panel) / <alpha-value>)',
+        card: 'rgb(var(--color-card) / <alpha-value>)',
+        border: 'rgb(var(--color-border) / <alpha-value>)',
+        muted: 'rgb(var(--color-muted) / <alpha-value>)',
+        fg: 'rgb(var(--color-fg) / <alpha-value>)',
         blue: {
           accent: '#2563EB',
           dim: 'rgba(37,99,235,0.12)',

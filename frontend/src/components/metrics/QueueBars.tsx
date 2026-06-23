@@ -20,7 +20,7 @@ function BarRow({ label, value, max, display, color }: BarRowProps) {
           style={{ width: `${pct}%`, backgroundColor: color }}
         />
       </div>
-      <span className="text-[11px] font-mono text-white w-16 text-right shrink-0">{display}</span>
+      <span className="text-[11px] font-mono text-fg w-16 text-right shrink-0">{display}</span>
     </div>
   )
 }
@@ -35,7 +35,7 @@ export function QueueBars() {
 
   return (
     <div className="px-4 py-3 border-t border-border">
-      <h3 className="text-[11px] font-semibold text-white mb-2">Scheduler State</h3>
+      <h3 className="text-[11px] font-semibold text-fg mb-2">Scheduler State</h3>
       <div className="flex flex-col gap-2">
         <BarRow
           label="Requests Running"

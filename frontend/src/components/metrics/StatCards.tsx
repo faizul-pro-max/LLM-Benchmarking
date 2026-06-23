@@ -33,7 +33,7 @@ function StatCard({ label, value, sub, sparkData, color }: StatCardProps) {
     <div className="bg-card border border-border rounded-lg p-3 flex flex-col gap-1">
       <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">{label}</span>
       <div className="flex items-end justify-between gap-2">
-        <span className="text-2xl font-bold text-white leading-none">{value}</span>
+        <span className="text-2xl font-bold text-fg leading-none">{value}</span>
         {sparkData && <Sparkline data={sparkData} color={color} />}
       </div>
       {sub && <span className="text-[10px] text-muted">{sub}</span>}

@@ -12,7 +12,7 @@ function DiffCell({ value, pct, fmt }: { value: number | null; pct?: number; fmt
   // For TTFT lower is better; for Tok/s higher is better
   return (
     <td className="px-3 py-2 text-center">
-      <span className="text-white font-mono text-xs">{fmt(value)}</span>
+      <span className="text-fg font-mono text-xs">{fmt(value)}</span>
       {pct != null && pct !== 0 && (
         <span
           className={clsx(
@@ -35,7 +35,7 @@ function TpsDiffCell({ value, pct }: { value: number | null; pct?: number }) {
 
   return (
     <td className="px-3 py-2 text-center">
-      <span className="text-white font-mono text-xs">{fmtTps(value)}</span>
+      <span className="text-fg font-mono text-xs">{fmtTps(value)}</span>
       {pct != null && pct !== 0 && (
         <span
           className={clsx(
@@ -64,7 +64,7 @@ export function ComparisonTable() {
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-        <h3 className="text-[11px] font-semibold text-white">Experiment Comparison</h3>
+        <h3 className="text-[11px] font-semibold text-fg">Experiment Comparison</h3>
       </div>
 
       <div className="overflow-x-auto">
@@ -94,7 +94,7 @@ export function ComparisonTable() {
                     {row.isBaseline && (
                       <span className="w-2 h-2 rounded-full bg-blue-accent shrink-0" />
                     )}
-                    <span className={clsx('font-medium', row.isActive ? 'text-blue-accent' : 'text-white')}>
+                    <span className={clsx('font-medium', row.isActive ? 'text-blue-accent' : 'text-fg')}>
                       {row.name}
                     </span>
                     {row.isBaseline && (

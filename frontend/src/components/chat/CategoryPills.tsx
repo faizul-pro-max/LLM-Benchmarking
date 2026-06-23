@@ -26,7 +26,7 @@ export function CategoryPills({ value, onChange, promptCount }: CategoryPillsPro
               'px-2.5 py-1 rounded text-xs font-medium transition-colors',
               value === p.value
                 ? 'bg-blue-accent text-white'
-                : 'bg-card border border-border text-muted hover:text-white hover:border-blue-accent/50'
+                : 'bg-card border border-border text-muted hover:text-fg hover:border-blue-accent/50'
             )}
           >
             {p.label}

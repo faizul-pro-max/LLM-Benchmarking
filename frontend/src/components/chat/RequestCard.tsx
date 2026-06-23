@@ -52,7 +52,7 @@ export function RequestCard({ req, index }: RequestCardProps) {
 
       {/* Streaming tokens */}
       {(req.state === 'decoding' || req.state === 'done') && req.tokens_text && (
-        <p className="text-white/70 leading-tight line-clamp-2 font-mono text-[10px]">
+        <p className="text-fg/70 leading-tight line-clamp-2 font-mono text-[10px]">
           {req.tokens_text.slice(-100)}
         </p>
       )}
@@ -65,13 +65,13 @@ export function RequestCard({ req, index }: RequestCardProps) {
       {/* Metrics row */}
       <div className="flex items-center gap-2 text-muted mt-0.5">
         {req.ttft_ms != null && (
-          <span>TTFT: <span className="text-white">{fmtMs(req.ttft_ms)}</span></span>
+          <span>TTFT: <span className="text-fg">{fmtMs(req.ttft_ms)}</span></span>
         )}
         {req.token_count != null && (
-          <span>Tokens: <span className="text-white">{req.token_count}</span></span>
+          <span>Tokens: <span className="text-fg">{req.token_count}</span></span>
         )}
         {req.tpot_ms != null && req.token_count != null && req.tpot_ms > 0 && (
-          <span><span className="text-white">{Math.round(1000 / req.tpot_ms)}</span> tok/s</span>
+          <span><span className="text-fg">{Math.round(1000 / req.tpot_ms)}</span> tok/s</span>
         )}
       </div>
 

@@ -33,7 +33,7 @@ export function RunControls({
           disabled={isRunning}
           className="flex-1 h-1 accent-blue-accent cursor-pointer disabled:opacity-40"
         />
-        <span className="text-xs font-mono text-white w-4 text-right">{concurrency}</span>
+        <span className="text-xs font-mono text-fg w-4 text-right">{concurrency}</span>
       </div>
 
       <button

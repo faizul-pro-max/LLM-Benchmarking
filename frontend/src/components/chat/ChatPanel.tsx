@@ -37,7 +37,7 @@ export function ChatPanel({
       {/* Panel header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
         <div>
-          <h2 className="text-sm font-semibold text-white">Concurrent Requests</h2>
+          <h2 className="text-sm font-semibold text-fg">Concurrent Requests</h2>
           <p className="text-[10px] text-muted">
             {activeCount} / {reqArray.length} active
           </p>
