@@ -6,6 +6,7 @@ import type { ServerToClientEvents, ClientToServerEvents } from '../types/socket
 import type { Prompt } from './sheetsLoader'
 
 const VLLM_URL       = process.env.VLLM_URL ?? ''
+const VLLM_API_KEY   = process.env.VLLM_API_KEY ?? ''
 const TOKEN_BATCH    = 5
 const TOKEN_BATCH_MS = 100
 
@@ -103,7 +104,10 @@ async function runSingleRequest(
   try {
     const res = await fetch(`${VLLM_URL}/v1/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(VLLM_API_KEY ? { Authorization: `Bearer ${VLLM_API_KEY}` } : {}),
+      },
       body: JSON.stringify({
         model: process.env.MODEL_NAME ?? 'Qwen/Qwen2.5-7B-Instruct',
         prompt: prompt.text,

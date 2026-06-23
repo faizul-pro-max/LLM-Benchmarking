@@ -2,7 +2,7 @@ import { useRunStore } from '@/store/runStore'
 import type { Socket } from 'socket.io-client'
 import type { RunConfig } from '@/types/experiment'
 
-export function useRun(socket: Socket | null) {
+export function useRun(_socket: Socket | null) {
   const runId = useRunStore((s) => s.runId)
   const phase = useRunStore((s) => s.phase)
   const requests = useRunStore((s) => s.requests)
@@ -13,17 +13,27 @@ export function useRun(socket: Socket | null) {
   const summary = useRunStore((s) => s.summary)
   const { startRun, reset, setConcurrency, setCategory, setPromptCount } = useRunStore.getState()
 
-  const start = (name: string) => {
-    if (!socket) return
+  const start = async (name: string) => {
     const config: RunConfig = { name, concurrency, category, promptCount }
-    socket.emit('run:start', config, (id: string) => {
-      startRun({ ...config, runId: id })
+    // Backend has no run:start socket listener — the pipeline is a REST route.
+    // Start via REST, then the socket streams phase/metrics/request updates.
+    const res = await fetch('/api/run/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
     })
+    if (!res.ok) return
+    const { runId: id } = (await res.json()) as { runId: string }
+    startRun({ ...config, runId: id })
   }
 
-  const stop = () => {
-    if (!socket || !runId) return
-    socket.emit('run:stop', { runId })
+  const stop = async () => {
+    if (!runId) return
+    await fetch('/api/run/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runId }),
+    })
     reset()
   }
 

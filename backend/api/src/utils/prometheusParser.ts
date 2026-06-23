@@ -38,14 +38,38 @@ function parseGauge(text: string, metricName: string): number {
   return match ? parseFloat(match[1]) : 0
 }
 
+// Returns -1 when a metric is absent so callers can fall back to an alternate name
+function parseGaugeOpt(text: string, metricName: string): number {
+  const match = new RegExp(`^${metricName}(?:\\{[^}]*\\})?\\s+([\\d.eE+\\-]+)`, 'm').exec(text)
+  return match ? parseFloat(match[1]) : -1
+}
+
+/** Parse the label set of an `_info`-style metric like vllm:cache_config_info{...} 1.0 */
+export function parseInfoLabels(text: string, metricName: string): Record<string, string> {
+  const line = new RegExp(`^${metricName}\\{([^}]*)\\}`, 'm').exec(text)
+  if (!line) return {}
+  const labels: Record<string, string> = {}
+  const re = /([a-zA-Z0-9_]+)="([^"]*)"/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(line[1])) !== null) labels[m[1]] = m[2]
+  return labels
+}
+
 export function parseVllmMetrics(text: string) {
   const ttftBuckets = parseBuckets(text, 'vllm:time_to_first_token_seconds')
+
+  // KV cache: vLLM v1 renamed gpu_cache_usage_perc → kv_cache_usage_perc (value is a 0..1 fraction)
+  const kvFrac = parseGaugeOpt(text, 'vllm:kv_cache_usage_perc')
+  const kvFracLegacy = kvFrac >= 0 ? kvFrac : parseGaugeOpt(text, 'vllm:gpu_cache_usage_perc')
+
   return {
-    kv_cache_pct: parseGauge(text, 'vllm:gpu_cache_usage_perc') * 100,
+    kv_cache_pct: (kvFracLegacy >= 0 ? kvFracLegacy : 0) * 100,
     requests_running: parseGauge(text, 'vllm:num_requests_running'),
     requests_waiting: parseGauge(text, 'vllm:num_requests_waiting'),
     requests_swapped: parseGauge(text, 'vllm:num_requests_swapped'),
-    tokens_per_sec: parseGauge(text, 'vllm:avg_generation_throughput_toks_per_s'),
+    // No throughput gauge in v1 — collector derives tokens_per_sec from this counter delta
+    tokens_per_sec: 0,
+    generation_tokens_total: parseGauge(text, 'vllm:generation_tokens_total'),
     ttft_p50_ms: interpolatePercentile(ttftBuckets, 50),
     ttft_p99_ms: interpolatePercentile(ttftBuckets, 99),
   }
