@@ -1,9 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Header } from '@/components/controls/Header'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { MetricsPanel } from '@/components/metrics/MetricsPanel'
+import { ConversationModal } from '@/components/conversation/ConversationModal'
 import { useSocket } from '@/hooks/useSocket'
 import { useRun } from '@/hooks/useRun'
+import { useHealth } from '@/hooks/useHealth'
 import { startMockData } from '@/utils/mockData'
 
 const EXPERIMENT_NAME = 'Baseline - vLLM 0.6.3 - Qwen2.5-7B'
@@ -21,6 +23,9 @@ export default function App() {
     setConcurrency,
     setCategory,
   } = useRun(socket)
+
+  const { vllmOk, model } = useHealth()
+  const [chatOpen, setChatOpen] = useState(false)
 
   // Start mock data when not connected to a real backend
   useEffect(() => {
@@ -42,6 +47,8 @@ export default function App() {
         connected={connected}
         rtt={rtt}
         experimentName={EXPERIMENT_NAME}
+        showChat={vllmOk}
+        onChatClick={() => setChatOpen(true)}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -65,6 +72,8 @@ export default function App() {
           <MetricsPanel />
         </div>
       </div>
+
+      <ConversationModal open={chatOpen} onClose={() => setChatOpen(false)} model={model} />
     </div>
   )
 }

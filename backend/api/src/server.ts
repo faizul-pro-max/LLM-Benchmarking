@@ -12,6 +12,7 @@ import runRouter from './routes/run'
 import resultsRouter from './routes/results'
 import experimentsRouter from './routes/experiments'
 import promptsRouter from './routes/prompts'
+import chatRouter from './routes/chat'
 import type { ServerToClientEvents, ClientToServerEvents } from './types/socket'
 
 const PORT         = parseInt(process.env.PORT ?? '3001', 10)
@@ -36,6 +37,7 @@ app.use('/run', runRouter)
 app.use('/results', resultsRouter)
 app.use('/experiments', experimentsRouter)
 app.use('/prompts', promptsRouter)
+app.use('/chat', chatRouter)
 app.use(errorHandler)
 
 io.on('connection', (socket) => {

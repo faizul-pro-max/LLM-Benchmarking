@@ -1,9 +1,11 @@
 import { Router } from 'express'
 import db from '../db/connection'
+import { buildDoctorReport, collectConfig } from '../utils/doctor'
 
 const router = Router()
-const GPU_AGENT_URL = process.env.GPU_AGENT_URL ?? ''
-const VLLM_URL      = process.env.VLLM_URL ?? ''
+const GPU_AGENT_URL     = process.env.GPU_AGENT_URL ?? ''
+const GPU_AGENT_API_KEY = process.env.GPU_AGENT_API_KEY ?? ''
+const VLLM_URL          = process.env.VLLM_URL ?? ''
 
 async function checkRedis() {
   try {
@@ -25,7 +27,8 @@ async function checkGpu() {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fetch = require('node-fetch') as typeof import('node-fetch').default
     const t0 = Date.now()
-    const res = await (fetch as Function)(`${GPU_AGENT_URL}/gpu`, { signal: AbortSignal.timeout(2500) })
+    const headers = GPU_AGENT_API_KEY ? { 'x-api-key': GPU_AGENT_API_KEY } : undefined
+    const res = await (fetch as Function)(`${GPU_AGENT_URL}/gpu`, { signal: AbortSignal.timeout(2500), headers })
     const latency_ms = Date.now() - t0
     const data = await res.json() as Record<string, unknown>
     return { status: 'ok' as const, url: GPU_AGENT_URL, latency_ms, last_metric: { gpu_util: data.gpu_util, vram_used_mb: data.vram_used_mb } }
@@ -68,7 +71,30 @@ router.get('/', async (_req, res) => {
     gpu_agent.status === 'unreachable' || vllm.status === 'unreachable' ? 'degraded' :
     'healthy'
 
-  res.json({ status, uptime_s: Math.floor(process.uptime()), checks: { redis, sqlite, gpu_agent, vllm } })
+  // Compact config summary so the UI can show what's applied without the heavier /health/doctor call
+  const cfg = collectConfig()
+  const summary = {
+    model_name: cfg.model_name,
+    vllm_url: cfg.vllm_url,
+    gpu_agent_url: cfg.gpu_agent_url,
+    defaults: cfg.defaults,
+    doctor: '/health/doctor',
+  }
+
+  res.json({ status, uptime_s: Math.floor(process.uptime()), checks: { redis, sqlite, gpu_agent, vllm }, summary })
+})
+
+// Full configuration + loaded-model + GPU diagnostics for the UI to project
+router.get('/doctor', async (_req, res) => {
+  try {
+    const report = await Promise.race([
+      buildDoctorReport(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('doctor timeout')), 4000)),
+    ])
+    res.json(report)
+  } catch (err) {
+    res.status(200).json({ status: 'degraded', generated_at: Date.now(), error: String(err) })
+  }
 })
 
 router.get('/gpu', async (_req, res) => {
