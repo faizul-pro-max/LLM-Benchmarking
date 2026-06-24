@@ -1,5 +1,6 @@
 import { useMetrics } from '@/hooks/useMetrics'
 import { fmtGB, fmtTps, fmtPct } from '@/utils/formatters'
+import type { MetricsSnapshot } from '@/types/metrics'
 
 interface StatCardProps {
   label: string
@@ -41,8 +42,16 @@ function StatCard({ label, value, sub, sparkData, color }: StatCardProps) {
   )
 }
 
-export function StatCards() {
-  const { snapshots, latest } = useMetrics()
+interface StatCardsProps {
+  /** Optional historical snapshots; when omitted the live metrics store is used. */
+  snapshots?: MetricsSnapshot[]
+  latest?: MetricsSnapshot | null
+}
+
+export function StatCards({ snapshots: snapOverride, latest: latestOverride }: StatCardsProps = {}) {
+  const live = useMetrics()
+  const snapshots = snapOverride ?? live.snapshots
+  const latest = latestOverride !== undefined ? latestOverride : live.latest
 
   const gpuData = snapshots.map((s) => s.gpu_util)
   const vramData = snapshots.map((s) => s.vram_used_mb)

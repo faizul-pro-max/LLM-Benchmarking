@@ -1,9 +1,16 @@
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { useMetrics } from '@/hooks/useMetrics'
 import { useChartColors } from '@/utils/chartColors'
+import type { MetricsSnapshot } from '@/types/metrics'
 
-export function TpsChart() {
-  const { snapshots } = useMetrics()
+interface TpsChartProps {
+  /** Optional historical snapshots; when omitted the live metrics store is used. */
+  snapshots?: MetricsSnapshot[]
+}
+
+export function TpsChart({ snapshots: override }: TpsChartProps = {}) {
+  const live = useMetrics()
+  const snapshots = override ?? live.snapshots
   const c = useChartColors()
 
   const data = snapshots.map((s, i) => ({

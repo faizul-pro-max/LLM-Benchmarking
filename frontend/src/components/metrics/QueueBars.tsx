@@ -1,5 +1,6 @@
 import { useMetrics } from '@/hooks/useMetrics'
 import { fmtMs } from '@/utils/formatters'
+import type { MetricsSnapshot } from '@/types/metrics'
 
 interface BarRowProps {
   label: string
@@ -25,8 +26,14 @@ function BarRow({ label, value, max, display, color }: BarRowProps) {
   )
 }
 
-export function QueueBars() {
-  const { latest } = useMetrics()
+interface QueueBarsProps {
+  /** Optional historical latest snapshot; when omitted the live store is used. */
+  latest?: MetricsSnapshot | null
+}
+
+export function QueueBars({ latest: latestOverride }: QueueBarsProps = {}) {
+  const live = useMetrics()
+  const latest = latestOverride !== undefined ? latestOverride : live.latest
 
   const running = latest?.requests_running ?? 0
   const waiting = latest?.requests_waiting ?? 0

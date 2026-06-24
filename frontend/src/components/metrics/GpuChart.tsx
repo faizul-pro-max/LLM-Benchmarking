@@ -1,9 +1,16 @@
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { useMetrics } from '@/hooks/useMetrics'
 import { useChartColors } from '@/utils/chartColors'
+import type { MetricsSnapshot } from '@/types/metrics'
 
-export function GpuChart() {
-  const { snapshots } = useMetrics()
+interface GpuChartProps {
+  /** Optional historical snapshots; when omitted the live metrics store is used. */
+  snapshots?: MetricsSnapshot[]
+}
+
+export function GpuChart({ snapshots: override }: GpuChartProps = {}) {
+  const live = useMetrics()
+  const snapshots = override ?? live.snapshots
   const c = useChartColors()
 
   const data = snapshots.map((s, i) => ({

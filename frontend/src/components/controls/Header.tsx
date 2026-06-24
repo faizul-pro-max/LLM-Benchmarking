@@ -5,11 +5,23 @@ interface HeaderProps {
   connected: boolean
   rtt: number | null
   experimentName: string
-  showChat?: boolean
+  gpuName?: string | null
+  chatActive?: boolean
   onChatClick?: () => void
+  benchmarksActive?: boolean
+  onBenchmarksClick?: () => void
 }
 
-export function Header({ connected, rtt, experimentName, showChat, onChatClick }: HeaderProps) {
+export function Header({
+  connected,
+  rtt,
+  experimentName,
+  gpuName,
+  chatActive,
+  onChatClick,
+  benchmarksActive,
+  onBenchmarksClick,
+}: HeaderProps) {
   const theme = useThemeStore((s) => s.theme)
   const toggleTheme = useThemeStore((s) => s.toggle)
   return (
@@ -28,7 +40,7 @@ export function Header({ connected, rtt, experimentName, showChat, onChatClick }
       {/* GPU + experiment info */}
       <div className="flex items-center gap-2 text-xs">
         <span className="px-2 py-0.5 rounded bg-card border border-border text-muted font-mono">
-          A100 80GB · Vast.ai
+          {gpuName ?? 'GPU —'}
         </span>
         <span className="text-border">·</span>
         <span className="px-2 py-0.5 rounded bg-card border border-blue-accent/40 text-blue-accent font-medium">
@@ -54,18 +66,39 @@ export function Header({ connected, rtt, experimentName, showChat, onChatClick }
             Network: <span className="text-fg font-mono">{rtt}ms</span> RTT
           </span>
         )}
-        {showChat && (
-          <button
-            onClick={onChatClick}
-            title="Chat with the connected model"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-green-accent/15 border border-green-accent/40 text-green-accent hover:bg-green-accent/25 transition-colors font-medium"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-            </svg>
-            Chat
-          </button>
-        )}
+        <button
+          onClick={onBenchmarksClick}
+          title="View past benchmark runs"
+          className={clsx(
+            'flex items-center gap-1.5 px-2.5 py-1 rounded border transition-colors font-medium',
+            benchmarksActive
+              ? 'bg-blue-accent text-white border-blue-accent hover:bg-blue-600'
+              : 'bg-blue-accent/15 border-blue-accent/40 text-blue-accent hover:bg-blue-accent/25'
+          )}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 3v18h18" />
+            <rect x="7" y="11" width="3" height="6" />
+            <rect x="12" y="7" width="3" height="10" />
+            <rect x="17" y="13" width="3" height="4" />
+          </svg>
+          Benchmarks
+        </button>
+        <button
+          onClick={onChatClick}
+          title={chatActive ? 'Back to benchmark' : 'Chat with the connected model'}
+          className={clsx(
+            'flex items-center gap-1.5 px-2.5 py-1 rounded border transition-colors font-medium',
+            chatActive
+              ? 'bg-green-accent text-white border-green-accent hover:bg-green-600'
+              : 'bg-green-accent/15 border-green-accent/40 text-green-accent hover:bg-green-accent/25'
+          )}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+          </svg>
+          {chatActive ? 'Benchmark' : 'Chat'}
+        </button>
         <button
           onClick={toggleTheme}
           aria-label="Toggle theme"

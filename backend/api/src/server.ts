@@ -13,6 +13,7 @@ import resultsRouter from './routes/results'
 import experimentsRouter from './routes/experiments'
 import promptsRouter from './routes/prompts'
 import chatRouter from './routes/chat'
+import { startMetricsLoop } from './utils/metricsCollector'
 import type { ServerToClientEvents, ClientToServerEvents } from './types/socket'
 
 const PORT         = parseInt(process.env.PORT ?? '3001', 10)
@@ -52,6 +53,9 @@ async function start() {
   runMigrations()
   await loadPrompts()
   _io = io
+
+  // Always-on live metrics — flows as soon as the server boots (no run needed).
+  startMetricsLoop(io)
 
   server.listen(PORT, () => {
     console.log({ msg: 'server started', port: PORT, frontend: FRONTEND_URL, ts: Date.now() })

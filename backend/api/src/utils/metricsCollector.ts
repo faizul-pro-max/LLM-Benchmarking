@@ -114,8 +114,14 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
   }
 }
 
-export function startMetricsCollector(io: Server<ClientToServerEvents, ServerToClientEvents>, runId: string) {
-  activeRunId = runId
+// Always-on metrics loop. Starts a single 500ms interval that ALWAYS emits a
+// `metrics:snapshot` so the dashboard stays live even when no run is active.
+// Snapshots are only persisted to SQLite while a run is active (activeRunId set).
+// Idempotent: if the loop is already running, this is a no-op.
+export function startMetricsLoop(io: Server<ClientToServerEvents, ServerToClientEvents>) {
+  if (timer) return
+
+  // Reset tokens/sec derivation state for a clean baseline.
   prevGenTokens = null
   prevGenTs = 0
 
@@ -134,7 +140,15 @@ export function startMetricsCollector(io: Server<ClientToServerEvents, ServerToC
   }, POLL_INTERVAL)
 }
 
+// Marks a run as active so snapshots get persisted. Ensures the always-on loop
+// is running but never creates a second interval.
+export function startMetricsCollector(io: Server<ClientToServerEvents, ServerToClientEvents>, runId: string) {
+  activeRunId = runId
+  startMetricsLoop(io)
+}
+
+// Clears the active run so snapshots stop being persisted. The interval keeps
+// running so live metrics continue to flow to the idle/chat dashboard.
 export function stopMetricsCollector() {
   activeRunId = null
-  if (timer) { clearInterval(timer); timer = null }
 }

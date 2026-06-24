@@ -1,15 +1,23 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export interface HealthInfo {
+  /** True when the model is reachable. Only flips to false after several
+   *  consecutive failed polls so transient network/health blips don't hide UI. */
   vllmOk: boolean
   gpuOk: boolean
   model: string | null
 }
 
+/** Number of consecutive failed polls before we treat the model as offline.
+ *  At the default 5s interval this is ~15s of sustained failure. */
+const FAILURE_THRESHOLD = 3
+
 /** Polls /api/health so the UI knows when a GPU instance + model are connected.
- *  vllmOk drives whether the Chat menu appears in the header. */
+ *  vllmOk is debounced — it stays true through transient single-poll failures and
+ *  only flips false after FAILURE_THRESHOLD consecutive failures. */
 export function useHealth(intervalMs = 5000): HealthInfo {
   const [info, setInfo] = useState<HealthInfo>({ vllmOk: false, gpuOk: false, model: null })
+  const failures = useRef(0)
 
   useEffect(() => {
     let alive = true
@@ -20,13 +28,23 @@ export function useHealth(intervalMs = 5000): HealthInfo {
         if (!res.ok) throw new Error(String(res.status))
         const d = await res.json()
         if (!alive) return
+        const vllmReachable = d?.checks?.vllm?.status === 'ok'
+        if (vllmReachable) failures.current = 0
+        else failures.current += 1
         setInfo({
-          vllmOk: d?.checks?.vllm?.status === 'ok',
+          vllmOk: failures.current < FAILURE_THRESHOLD,
           gpuOk: d?.checks?.gpu_agent?.status === 'ok',
           model: d?.summary?.model_name ?? null,
         })
       } catch {
-        if (alive) setInfo({ vllmOk: false, gpuOk: false, model: null })
+        if (!alive) return
+        failures.current += 1
+        // Keep the last-known model name; only the reachability flag debounces.
+        setInfo((prev) => ({
+          vllmOk: failures.current < FAILURE_THRESHOLD,
+          gpuOk: false,
+          model: prev.model,
+        }))
       }
     }
 

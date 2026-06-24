@@ -76,5 +76,26 @@ export function runMigrations() {
       warmup_excluded         INTEGER DEFAULT 1,
       run_count               INTEGER DEFAULT 3
     );
+
+    CREATE TABLE IF NOT EXISTS chat_sessions (
+      id          TEXT PRIMARY KEY,
+      title       TEXT,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at  INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id  TEXT NOT NULL REFERENCES chat_sessions(id),
+      role        TEXT NOT NULL,
+      content     TEXT NOT NULL,
+      ttft_ms     REAL,
+      total_ms    REAL,
+      tokens      INTEGER,
+      tps         REAL,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id);
   `)
 }

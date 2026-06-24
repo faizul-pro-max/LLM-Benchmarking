@@ -3,8 +3,24 @@ import db from '../db/connection'
 
 const router = Router()
 
+// LEFT JOIN aggregated_results so the Benchmarks list can show headline numbers
+// (TTFT p50, tok/s, GPU util, KV cache) per run without N extra calls.
 router.get('/', (_req, res) => {
-  const runs = db.prepare(`SELECT * FROM runs ORDER BY created_at DESC`).all()
+  const runs = db.prepare(`
+    SELECT
+      r.*,
+      ar.ttft_p50_ms        AS ttft_p50_ms,
+      ar.ttft_p90_ms        AS ttft_p90_ms,
+      ar.ttft_p99_ms        AS ttft_p99_ms,
+      ar.tokens_per_sec_avg AS tokens_per_sec_avg,
+      ar.gpu_util_avg       AS gpu_util_avg,
+      ar.kv_cache_avg       AS kv_cache_avg,
+      ar.tpot_p50_ms        AS tpot_p50_ms,
+      ar.total_requests     AS total_requests
+    FROM runs r
+    LEFT JOIN aggregated_results ar ON ar.run_id = r.id
+    ORDER BY r.created_at DESC
+  `).all()
   res.json(runs)
 })
 
