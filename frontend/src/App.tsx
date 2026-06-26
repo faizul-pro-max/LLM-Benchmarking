@@ -28,10 +28,10 @@ export default function App() {
 
   const { vllmOk, model } = useHealth()
   const { latest } = useMetrics()
-  // Top-level mode: live dashboard (benchmark/chat) vs. past-runs Benchmarks view.
-  const [topView, setTopView] = useState<'live' | 'benchmarks'>('live')
-  // Within the live dashboard, the left panel toggles between benchmark and chat.
-  const [leftView, setLeftView] = useState<'benchmark' | 'chat'>('benchmark')
+  // Single exclusive navigation state. The three top-level views are mutually
+  // exclusive tabs — switching one always leaves a well-defined view (no stale
+  // left-panel state). 'benchmark' is the default landing view.
+  const [view, setView] = useState<'benchmark' | 'chat' | 'benchmarks'>('benchmark')
 
   // Start mock data only when truly disconnected from the backend. When connected
   // (even idle), live metrics:snapshot events drive every chart.
@@ -55,26 +55,23 @@ export default function App() {
         rtt={rtt}
         experimentName={EXPERIMENT_NAME}
         gpuName={latest?.gpu_name ?? null}
-        chatActive={topView === 'live' && leftView === 'chat'}
-        onChatClick={() => {
-          setTopView('live')
-          setLeftView((v) => (v === 'chat' ? 'benchmark' : 'chat'))
-        }}
-        benchmarksActive={topView === 'benchmarks'}
-        onBenchmarksClick={() => setTopView((v) => (v === 'benchmarks' ? 'live' : 'benchmarks'))}
+        chatActive={view === 'chat'}
+        onChatClick={() => setView((v) => (v === 'chat' ? 'benchmark' : 'chat'))}
+        benchmarksActive={view === 'benchmarks'}
+        onBenchmarksClick={() => setView((v) => (v === 'benchmarks' ? 'benchmark' : 'benchmarks'))}
       />
 
-      {topView === 'benchmarks' ? (
+      {view === 'benchmarks' ? (
         <BenchmarksView />
       ) : (
         <div className="flex flex-1 overflow-hidden">
           {/* Left panel — ~42% width — benchmark or live chat */}
           <div className="w-[42%] min-w-[360px] flex flex-col overflow-hidden">
-            {leftView === 'chat' ? (
+            {view === 'chat' ? (
               <ConversationPanel
                 model={model}
                 vllmOk={vllmOk}
-                onClose={() => setLeftView('benchmark')}
+                onClose={() => setView('benchmark')}
               />
             ) : (
               <ChatPanel
@@ -93,7 +90,7 @@ export default function App() {
 
           {/* Right panel — remaining width — live GPU metrics, always visible */}
           <div className="flex-1 overflow-hidden">
-            <MetricsPanel />
+            <MetricsPanel mode={view === 'chat' ? 'chat' : 'benchmark'} />
           </div>
         </div>
       )}

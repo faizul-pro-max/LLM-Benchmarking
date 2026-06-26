@@ -4,7 +4,15 @@ import { TpsChart } from './TpsChart'
 import { QueueBars } from './QueueBars'
 import { ComparisonTable } from '@/components/comparison/ComparisonTable'
 
-export function MetricsPanel() {
+interface MetricsPanelProps {
+  /** 'chat' trims the panel to live signals only — scheduler state and the
+   *  experiment comparison table are benchmark-only and hidden in chat mode. */
+  mode?: 'benchmark' | 'chat'
+}
+
+export function MetricsPanel({ mode = 'benchmark' }: MetricsPanelProps = {}) {
+  const showBenchmarkOnly = mode === 'benchmark'
+
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-bg">
       <StatCards />
@@ -19,11 +27,13 @@ export function MetricsPanel() {
         </div>
       </div>
 
-      <QueueBars />
+      {showBenchmarkOnly && <QueueBars />}
 
-      <div className="px-4 pb-4">
-        <ComparisonTable />
-      </div>
+      {showBenchmarkOnly && (
+        <div className="px-4 pb-4">
+          <ComparisonTable />
+        </div>
+      )}
     </div>
   )
 }

@@ -63,7 +63,7 @@ export function Header({
         </div>
         {rtt != null && (
           <span className="text-muted">
-            Network: <span className="text-fg font-mono">{rtt}ms</span> RTT
+            Network: <span className="text-fg font-mono">{Number(rtt.toFixed(3))}ms</span> RTT
           </span>
         )}
         <button
