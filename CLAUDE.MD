@@ -39,34 +39,43 @@ llm-bench/
 │       ├── store/
 │       │   ├── metricsStore.ts        ← Zustand: 60s rolling metrics buffer
 │       │   ├── runStore.ts            ← Zustand: active run, phase, results
-│       │   └── experimentStore.ts     ← Zustand: all experiments for comparison
+│       │   ├── experimentStore.ts     ← Zustand: all experiments for comparison
+│       │   └── themeStore.ts          ← Zustand: dark/light theme toggle
 │       ├── hooks/
 │       │   ├── useSocket.ts           ← Socket.IO connection + event handlers
 │       │   ├── useMetrics.ts          ← subscribe to metrics stream
-│       │   └── useRun.ts              ← start/stop run, phase tracking
+│       │   ├── useRun.ts              ← start/stop run, phase tracking
+│       │   ├── useHealth.ts           ← poll /health, vLLM/model/experiment info
+│       │   └── useChatSession.ts      ← live chat session against connected model
 │       ├── components/
 │       │   ├── chat/
 │       │   │   ├── ChatPanel.tsx      ← left panel wrapper
 │       │   │   ├── RequestCard.tsx    ← single request card (queued/prefilling/decoding/done)
 │       │   │   ├── RunControls.tsx    ← run/stop button, concurrency slider
 │       │   │   └── CategoryPills.tsx  ← random / shared-prefix / exact-repeat
+│       │   ├── conversation/
+│       │   │   └── ConversationPanel.tsx ← live chat panel against connected model
+│       │   ├── benchmarks/
+│       │   │   └── BenchmarksView.tsx ← past runs / benchmarks view
 │       │   ├── metrics/
-│       │   │   ├── MetricsPanel.tsx   ← right panel wrapper
+│       │   │   ├── MetricsPanel.tsx   ← right panel wrapper (benchmark | chat mode)
 │       │   │   ├── StatCards.tsx      ← GPU%, VRAM, tok/s, KV cache — 4 cards
 │       │   │   ├── GpuChart.tsx       ← GPU utilization line chart (60s)
 │       │   │   ├── TpsChart.tsx       ← tokens/sec line chart (60s)
-│       │   │   ├── TtftChart.tsx      ← TTFT distribution over run
-│       │   │   ├── WarmupChart.tsx    ← TTFT stabilisation during warmup
 │       │   │   ├── QueueBars.tsx      ← running/waiting/KV/TTFT progress bars
-│       │   │   └── NetworkBadge.tsx   ← server TTFT vs client TTFT + RTT
+│       │   │   ├── NetworkBadge.tsx   ← server TTFT vs client TTFT + RTT (component exists, not yet wired into MetricsPanel)
+│       │   │   ├── TtftChart.tsx      ← TTFT distribution over run (planned — not yet implemented)
+│       │   │   └── WarmupChart.tsx    ← TTFT stabilisation during warmup (planned — not yet implemented)
 │       │   ├── controls/
-│       │   │   ├── ExperimentSelector.tsx  ← dropdown to name/select experiments
-│       │   │   └── Phasebanner.tsx     ← warmup / benchmarking / complete banner
+│       │   │   ├── Header.tsx         ← experiment name, connection status, chat/benchmarks/theme controls
+│       │   │   └── PhaseBanner.tsx    ← warmup / benchmarking / complete banner
 │       │   └── comparison/
 │       │       └── ComparisonTable.tsx ← all experiments side by side
 │       └── utils/
 │           ├── percentile.ts          ← p50/p90/p99 from array
-│           └── formatters.ts          ← ms, GB, tok/s display formatters
+│           ├── formatters.ts          ← ms, GB, tok/s display formatters
+│           ├── chartColors.ts         ← theme-aware chart color palette
+│           └── mockData.ts            ← mock metrics stream when backend disconnected
 │
 ├── backend/
 │   ├── api/                           ← Express + TypeScript — always-on app server
@@ -592,14 +601,14 @@ interface ExperimentStore {
 - Line color: `#059669` (green)
 - Same fill/animation rules as GpuChart
 
-### TtftChart (recharts BarChart or ScatterChart)
+### TtftChart (recharts BarChart or ScatterChart) — (planned — not yet implemented)
 - Data: all completed requests in current run, TTFT value per request
 - X axis: request sequence number
 - Y axis: TTFT ms
 - Color: blue for benchmark requests, amber for warmup
 - Shows distribution — you can see outliers visually
 
-### WarmupChart (recharts LineChart)
+### WarmupChart (recharts LineChart) — (planned — not yet implemented)
 - Data: warmupTtfts array from runStore
 - X axis: warmup request number (0–19)
 - Y axis: TTFT ms

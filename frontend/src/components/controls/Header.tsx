@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { useThemeStore } from '@/store/themeStore'
 
@@ -5,9 +6,16 @@ interface HeaderProps {
   connected: boolean
   rtt: number | null
   experimentName: string
+  experimentSummary?: string | null
   gpuName?: string | null
+  /** Live model the connected vLLM server is serving (from /api/health). */
+  model?: string | null
   chatActive?: boolean
   onChatClick?: () => void
+  /** Start a brand-new chat session (resets history + metrics buffer). */
+  onNewChat?: () => void
+  /** Continue the existing ?session= chat (keeps history + metrics buffer). */
+  onContinueChat?: () => void
   benchmarksActive?: boolean
   onBenchmarksClick?: () => void
 }
@@ -16,14 +24,32 @@ export function Header({
   connected,
   rtt,
   experimentName,
+  experimentSummary,
   gpuName,
+  model,
   chatActive,
   onChatClick,
+  onNewChat,
+  onContinueChat,
   benchmarksActive,
   onBenchmarksClick,
 }: HeaderProps) {
   const theme = useThemeStore((s) => s.theme)
   const toggleTheme = useThemeStore((s) => s.toggle)
+  const [chatMenuOpen, setChatMenuOpen] = useState(false)
+  const chatMenuRef = useRef<HTMLDivElement>(null)
+
+  // Close the chat dropdown on any outside click.
+  useEffect(() => {
+    if (!chatMenuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (chatMenuRef.current && !chatMenuRef.current.contains(e.target as Node)) {
+        setChatMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [chatMenuOpen])
   return (
     <header className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-panel shrink-0">
       {/* Logo */}
@@ -42,10 +68,23 @@ export function Header({
         <span className="px-2 py-0.5 rounded bg-card border border-border text-muted font-mono">
           {gpuName ?? 'GPU —'}
         </span>
+        {model && (
+          <span
+            className="px-2 py-0.5 rounded bg-card border border-green-accent/40 text-green-accent font-mono"
+            title="Live model served by the connected vLLM server"
+          >
+            {model}
+          </span>
+        )}
         <span className="text-border">·</span>
         <span className="px-2 py-0.5 rounded bg-card border border-blue-accent/40 text-blue-accent font-medium">
           {experimentName}
         </span>
+        {experimentSummary && (
+          <span className="px-2 py-0.5 rounded bg-card border border-border text-muted font-mono">
+            {experimentSummary}
+          </span>
+        )}
       </div>
 
       {/* Connection status + RTT */}
@@ -84,21 +123,70 @@ export function Header({
           </svg>
           Benchmarks
         </button>
-        <button
-          onClick={onChatClick}
-          title={chatActive ? 'Back to benchmark' : 'Chat with the connected model'}
-          className={clsx(
-            'flex items-center gap-1.5 px-2.5 py-1 rounded border transition-colors font-medium',
-            chatActive
-              ? 'bg-green-accent text-white border-green-accent hover:bg-green-600'
-              : 'bg-green-accent/15 border-green-accent/40 text-green-accent hover:bg-green-accent/25'
+        {/* Split chat control: main button toggles chat; caret opens New/Continue */}
+        <div ref={chatMenuRef} className="relative flex items-center">
+          <button
+            onClick={onChatClick}
+            title={chatActive ? 'Back to benchmark' : 'Chat with the connected model'}
+            className={clsx(
+              'flex items-center gap-1.5 px-2.5 py-1 rounded-l border border-r-0 transition-colors font-medium',
+              chatActive
+                ? 'bg-green-accent text-white border-green-accent hover:bg-green-600'
+                : 'bg-green-accent/15 border-green-accent/40 text-green-accent hover:bg-green-accent/25'
+            )}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+            </svg>
+            {chatActive ? 'Benchmark' : 'Chat'}
+          </button>
+          <button
+            onClick={() => setChatMenuOpen((o) => !o)}
+            aria-label="Chat session options"
+            aria-haspopup="menu"
+            aria-expanded={chatMenuOpen}
+            title="New / continue chat session"
+            className={clsx(
+              'flex items-center px-1 py-1 rounded-r border transition-colors',
+              chatActive
+                ? 'bg-green-accent text-white border-green-accent hover:bg-green-600'
+                : 'bg-green-accent/15 border-green-accent/40 text-green-accent hover:bg-green-accent/25'
+            )}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          {chatMenuOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 top-full mt-1 z-20 w-48 rounded border border-border bg-card shadow-lg overflow-hidden"
+            >
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setChatMenuOpen(false)
+                  onNewChat?.()
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-fg hover:bg-green-accent/15 transition-colors"
+              >
+                New chat session
+                <span className="block text-[10px] text-muted">Fresh history + metrics</span>
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setChatMenuOpen(false)
+                  onContinueChat?.()
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-fg hover:bg-green-accent/15 transition-colors border-t border-border"
+              >
+                Continue last session
+                <span className="block text-[10px] text-muted">Keep history + metrics</span>
+              </button>
+            </div>
           )}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-          </svg>
-          {chatActive ? 'Benchmark' : 'Chat'}
-        </button>
+        </div>
         <button
           onClick={toggleTheme}
           aria-label="Toggle theme"

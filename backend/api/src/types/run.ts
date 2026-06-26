@@ -1,4 +1,4 @@
-export type RunPhase = 'pending' | 'warmup' | 'benchmarking' | 'complete' | 'error'
+export type RunPhase = 'pending' | 'warmup' | 'benchmarking' | 'complete' | 'stopped' | 'error'
 export type RequestState = 'queued' | 'prefilling' | 'decoding' | 'done' | 'error'
 export type RequestCategory = 'random' | 'shared_prefix' | 'exact_repeat'
 

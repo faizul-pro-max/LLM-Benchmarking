@@ -13,7 +13,7 @@ import resultsRouter from './routes/results'
 import experimentsRouter from './routes/experiments'
 import promptsRouter from './routes/prompts'
 import chatRouter from './routes/chat'
-import { startMetricsLoop } from './utils/metricsCollector'
+import { startMetricsLoop, setChatSession } from './utils/metricsCollector'
 import type { ServerToClientEvents, ClientToServerEvents } from './types/socket'
 
 const PORT         = parseInt(process.env.PORT ?? '3001', 10)
@@ -43,6 +43,13 @@ app.use(errorHandler)
 
 io.on('connection', (socket) => {
   console.log({ msg: 'client connected', id: socket.id, ts: Date.now() })
+
+  // Declare/clear the active chat session so live metrics get tagged + persisted
+  // per conversation. null means the client left chat.
+  socket.on('chat:session', ({ sessionId }) => {
+    setChatSession(sessionId)
+    console.log({ msg: 'chat session set', id: socket.id, sessionId, ts: Date.now() })
+  })
 
   socket.on('disconnect', () => {
     console.log({ msg: 'client disconnected', id: socket.id, ts: Date.now() })

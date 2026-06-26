@@ -20,4 +20,7 @@ export interface VllmMetrics {
 
 export interface MetricsSnapshot extends GpuMetrics, VllmMetrics {
   transport_ms: number
+  // Set while a chat session is active so the dashboard + persistence can group
+  // snapshots by conversation. Absent for idle/benchmark-run snapshots.
+  session_id?: string
 }

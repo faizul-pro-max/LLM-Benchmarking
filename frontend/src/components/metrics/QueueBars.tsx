@@ -2,6 +2,15 @@ import { useMetrics } from '@/hooks/useMetrics'
 import { fmtMs } from '@/utils/formatters'
 import type { MetricsSnapshot } from '@/types/metrics'
 
+// Bar-scaling constants. These are *display* assumptions used only to size the
+// progress bars — they are NOT real scheduler limits. They roughly approximate
+// vLLM scheduler bounds (e.g. --max-num-seqs) so the bars look meaningful, but
+// ideally they should be derived from the actual server config rather than
+// hardcoded here.
+const MAX_RUNNING = 16   // approx vLLM max concurrently-running sequences (max-num-seqs)
+const MAX_WAITING = 32   // approx upper bound for the waiting queue length
+const MAX_TTFT_MS = 1000 // approx TTFT P50 ceiling (ms) used only for bar scaling
+
 interface BarRowProps {
   label: string
   value: number
@@ -47,28 +56,28 @@ export function QueueBars({ latest: latestOverride }: QueueBarsProps = {}) {
         <BarRow
           label="Requests Running"
           value={running}
-          max={16}
-          display={`${running} / 16`}
+          max={MAX_RUNNING}
+          display={`${running} / ${MAX_RUNNING}`}
           color="#2563EB"
         />
         <BarRow
           label="Requests Waiting"
           value={waiting}
-          max={32}
+          max={MAX_WAITING}
           display={String(waiting)}
           color="#D97706"
         />
         <BarRow
-          label="KV Cache Pages"
+          label="KV Cache %"
           value={kv}
           max={100}
           display={`${Math.round(kv)}%`}
           color="#059669"
         />
         <BarRow
-          label="KV TTFT / P50"
+          label="TTFT P50"
           value={ttft}
-          max={1000}
+          max={MAX_TTFT_MS}
           display={fmtMs(ttft)}
           color="#8B5CF6"
         />

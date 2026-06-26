@@ -8,6 +8,9 @@ interface ConversationPanelProps {
   model: string | null
   /** Whether the model is currently reachable (already debounced upstream). */
   vllmOk: boolean
+  /** Active session id, driven by App (New / Continue). When provided it is the
+   *  source of truth; when omitted the hook falls back to the URL param. */
+  sessionId?: string | null
 }
 
 interface TurnMetrics {
@@ -42,8 +45,8 @@ function rowToMessage(row: ChatSessionRow): ChatMessage {
   }
 }
 
-export function ConversationPanel({ onClose, model, vllmOk }: ConversationPanelProps) {
-  const sessionId = useChatSessionId()
+export function ConversationPanel({ onClose, model, vllmOk, sessionId: externalId }: ConversationPanelProps) {
+  const [sessionId] = useChatSessionId(externalId)
   const history = useChatHistory(sessionId)
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -51,6 +54,12 @@ export function ConversationPanel({ onClose, model, vllmOk }: ConversationPanelP
   const [busy, setBusy] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Switching sessions resets the visible conversation; persisted history (if any)
+  // re-populates it via the effect below once it loads.
+  useEffect(() => {
+    setMessages([])
+  }, [sessionId])
 
   // Load persisted history once it arrives (only if the user hasn't started typing/sending).
   useEffect(() => {

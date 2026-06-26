@@ -30,9 +30,9 @@ export function useSocket(): SocketState {
     socket.on('connect', () => setConnected(true))
     socket.on('disconnect', () => setConnected(false))
 
+    // Note: do NOT derive rtt here. `Date.now() - data.ts` is clock-offset plus
+    // transport, not a true round trip. The `ping` round-trip below owns rtt.
     socket.on('metrics:snapshot', (data: MetricsSnapshot) => {
-      const received = Date.now()
-      setRtt(received - data.ts)
       addSnapshot(data)
     })
 

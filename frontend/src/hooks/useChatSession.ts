@@ -29,21 +29,45 @@ function uuidv4(): string {
   })
 }
 
+/** Writes `id` into the `?session=` query param via replaceState (no history
+ *  entry, no reload). Exported so callers can keep the URL in sync. */
+export function writeSessionToUrl(id: string): void {
+  const params = new URLSearchParams(window.location.search)
+  params.set('session', id)
+  const url = `${window.location.pathname}?${params.toString()}${window.location.hash}`
+  window.history.replaceState(null, '', url)
+}
+
+/** Mints a fresh chat session id, writes it to the URL, and returns it. */
+export function newChatSession(): string {
+  const fresh = uuidv4()
+  writeSessionToUrl(fresh)
+  return fresh
+}
+
 /** Reads (or lazily creates) a chat session id from the `?session=` query param,
- *  writing it back into the URL via replaceState (no history entry, no reload). */
-export function useChatSessionId(): string {
-  const [sessionId] = useState<string>(() => {
+ *  writing it back into the URL via replaceState (no history entry, no reload).
+ *
+ *  When `externalId` is provided it becomes the source of truth — this lets a
+ *  parent component (App) drive the active session (e.g. "New"/"Continue").
+ *  The setter is returned so the hook can also be used standalone. */
+export function useChatSessionId(externalId?: string | null): [string, (id: string) => void] {
+  const [sessionId, setSessionId] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search)
     const existing = params.get('session')
     if (existing) return existing
-    const fresh = uuidv4()
-    params.set('session', fresh)
-    const url = `${window.location.pathname}?${params.toString()}${window.location.hash}`
-    window.history.replaceState(null, '', url)
-    return fresh
+    return newChatSession()
   })
 
-  return sessionId
+  // Follow an externally-driven id (App owns the active session).
+  useEffect(() => {
+    if (externalId && externalId !== sessionId) {
+      writeSessionToUrl(externalId)
+      setSessionId(externalId)
+    }
+  }, [externalId, sessionId])
+
+  return [sessionId, setSessionId]
 }
 
 /** Fetches the persisted history for a session. Returns null while loading and

@@ -1,6 +1,6 @@
 import { Server } from 'socket.io'
 import { parseVllmMetrics } from './prometheusParser'
-import { insertSnapshot } from '../db/queries/snapshots'
+import { insertSnapshot, insertChatSnapshot } from '../db/queries/snapshots'
 import type { MetricsSnapshot } from '../types/metrics'
 import type { ServerToClientEvents, ClientToServerEvents } from '../types/socket'
 
@@ -10,31 +10,45 @@ const VLLM_URL          = process.env.VLLM_URL          ?? ''
 const POLL_INTERVAL     = 500
 
 let activeRunId: string | null = null
+// Active chat session (mirrors activeRunId). When set, snapshots are tagged with
+// session_id and persisted tied to the session.
+let activeChatSessionId: string | null = null
 let polling = false
 let timer: ReturnType<typeof setInterval> | null = null
 
-// State for deriving tokens/sec from the vllm:generation_tokens_total counter
+// State for deriving tokens/sec from the vllm:generation_tokens_total counter.
+// prevGenTokens / prevGenTs hold the last poll's counter + wall-clock so we can
+// compute a per-second rate from the delta. lastNonzeroTps + its timestamp let us
+// briefly hold the last real throughput so short decode bursts (which can read 0
+// on a given 500ms tick) don't flap the chart to zero.
 let prevGenTokens: number | null = null
 let prevGenTs = 0
+let lastNonzeroTps = 0
+let lastNonzeroTpsTs = 0
+// How long to keep showing the last non-zero tok/s before decaying to 0 (ms).
+const TPS_HOLD_MS = 1500
 
 function mockSnapshot(): MetricsSnapshot {
-  const rand = (min: number, max: number) => Math.random() * (max - min) + min
+  // Represent a believable IDLE GPU: a model is loaded (modest resident VRAM) but
+  // no requests are in flight, so util/throughput sit near zero. Kept calm and
+  // non-jittery so idle charts don't look misleadingly busy. gpu_name is clearly
+  // marked as mock.
   return {
     ts: Date.now(),
-    transport_ms: Math.round(rand(10, 50)),
-    gpu_util: Math.round(rand(85, 99)),
-    vram_used_mb: Math.round(rand(68000, 74000)),
+    transport_ms: 15,
+    gpu_util: 2,
+    vram_used_mb: 16384,   // ~16 GB resident for a loaded-but-idle 7B model
     vram_total_mb: 81920,
-    power_w: Math.round(rand(300, 400)),
-    temp_c: Math.round(rand(60, 75)),
-    gpu_name: 'Mock A100-SXM4-80GB',
-    kv_cache_pct: Math.round(rand(70, 95)),
-    requests_running: Math.round(rand(5, 16)),
-    requests_waiting: Math.round(rand(0, 8)),
+    power_w: 60,           // near-idle draw
+    temp_c: 38,
+    gpu_name: 'Mock A100-SXM4-80GB (idle)',
+    kv_cache_pct: 0,
+    requests_running: 0,
+    requests_waiting: 0,
     requests_swapped: 0,
-    tokens_per_sec: Math.round(rand(1200, 1800)),
-    ttft_p50_ms: Math.round(rand(250, 350)),
-    ttft_p99_ms: Math.round(rand(400, 600)),
+    tokens_per_sec: 0,
+    ttft_p50_ms: 0,
+    ttft_p99_ms: 0,
   }
 }
 
@@ -89,16 +103,37 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
     vllmData = parseVllmMetrics(text)
   }
 
-  // Derive tokens/sec from the generation_tokens_total counter delta between polls
+  // Derive tokens/sec from the generation_tokens_total counter delta between polls.
+  // Robustness rules:
+  //   - Counter reset (vLLM restart): new total < prev → don't emit a negative
+  //     rate; reset the baseline and report 0 for this tick.
+  //   - Real rate over actual elapsed time (not assumed 500ms — ticks can skew).
+  //   - Short bursts: a single 500ms tick can land between counter increments and
+  //     read 0. Hold the last non-zero rate for TPS_HOLD_MS so the chart doesn't
+  //     flap to zero mid-decode, then decay cleanly to 0 once truly idle.
   const { generation_tokens_total, ...vllmRest } = vllmData
   const now = Date.now()
   let tokens_per_sec = 0
-  if (prevGenTokens !== null && generation_tokens_total >= prevGenTokens && prevGenTs > 0) {
-    const dt = (now - prevGenTs) / 1000
-    if (dt > 0) tokens_per_sec = (generation_tokens_total - prevGenTokens) / dt
+  if (prevGenTokens !== null && prevGenTs > 0) {
+    if (generation_tokens_total < prevGenTokens) {
+      // Counter reset — treat as a fresh baseline, emit 0 this tick.
+      tokens_per_sec = 0
+    } else {
+      const dt = (now - prevGenTs) / 1000
+      if (dt > 0) tokens_per_sec = (generation_tokens_total - prevGenTokens) / dt
+    }
   }
   prevGenTokens = generation_tokens_total
   prevGenTs = now
+
+  if (tokens_per_sec > 0) {
+    lastNonzeroTps = tokens_per_sec
+    lastNonzeroTpsTs = now
+  } else if (lastNonzeroTpsTs > 0 && now - lastNonzeroTpsTs <= TPS_HOLD_MS) {
+    // Within the hold window — surface the last real throughput instead of 0 so a
+    // brief gap between counter increments doesn't read as "idle".
+    tokens_per_sec = lastNonzeroTps
+  }
 
   return {
     ts: gpuData.ts ?? t0,
@@ -130,8 +165,14 @@ export function startMetricsLoop(io: Server<ClientToServerEvents, ServerToClient
     polling = true
     try {
       const snapshot = await collectSnapshot()
+      // Tag the snapshot with the active chat session (if any) so the dashboard
+      // can group live metrics by conversation.
+      if (activeChatSessionId) snapshot.session_id = activeChatSessionId
       io.emit('metrics:snapshot', snapshot)
+      // Persist: benchmark-run snapshots key on run_id; chat-session snapshots key
+      // on chat_session_id (run_id NULL). A run takes precedence if both are set.
       if (activeRunId) insertSnapshot(activeRunId, snapshot)
+      else if (activeChatSessionId) insertChatSnapshot(activeChatSessionId, snapshot)
     } catch (err) {
       console.log({ msg: 'metrics poll error', err: String(err), ts: Date.now() })
     } finally {
@@ -151,4 +192,16 @@ export function startMetricsCollector(io: Server<ClientToServerEvents, ServerToC
 // running so live metrics continue to flow to the idle/chat dashboard.
 export function stopMetricsCollector() {
   activeRunId = null
+}
+
+// Sets (or clears, with null) the active chat session. While set, emitted
+// snapshots are tagged with session_id and persisted tied to the session.
+// Mirrors the activeRunId pattern.
+export function setChatSession(sessionId: string | null) {
+  activeChatSessionId = sessionId
+}
+
+// Convenience clear, symmetric with setChatSession(null).
+export function clearChatSession() {
+  activeChatSessionId = null
 }

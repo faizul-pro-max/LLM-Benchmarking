@@ -1,4 +1,4 @@
-export type RunPhase = 'idle' | 'pending' | 'warmup' | 'benchmarking' | 'complete' | 'error'
+export type RunPhase = 'idle' | 'pending' | 'warmup' | 'benchmarking' | 'complete' | 'stopped' | 'error'
 
 export interface RunConfig {
   name: string
@@ -52,15 +52,18 @@ export interface ComparisonRow {
   isActive: boolean
   ttft_p50_ms: number | null
   ttft_p90_ms: number | null
+  ttft_p99_ms?: number | null
   tokens_per_sec_avg: number | null
   gpu_util_avg: number | null
   kv_cache_avg: number | null
   tpot_p50_ms: number | null
   pct_ttft_p50?: number
   pct_ttft_p90?: number
+  pct_ttft_p99?: number
   pct_tps?: number
   pct_gpu?: number
   pct_kv?: number
+  pct_tpot?: number
 }
 
 export interface WarmupTtft {

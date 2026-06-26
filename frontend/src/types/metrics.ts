@@ -1,5 +1,8 @@
 export interface MetricsSnapshot {
   ts: number
+  /** Optional chat session tag — present once the backend persists per-session
+   *  snapshots. Used to scope charts to the active chat session. */
+  session_id?: string
   transport_ms: number
   gpu_util: number
   vram_used_mb: number

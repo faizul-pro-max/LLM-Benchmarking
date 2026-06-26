@@ -10,6 +10,10 @@ import { computeAggregatedResult, saveAggregatedResult } from '../utils/aggregat
 
 const router = Router()
 
+// In-module guard: the pipeline runs in-process via setImmediate and shares a
+// single global metrics collector, so only one run may be active at a time.
+let runInProgress = false
+
 const RunStartSchema = z.object({
   name: z.string().min(1),
   concurrency: z.number().int().min(1).max(100).default(10),
@@ -24,10 +28,16 @@ router.post('/start', async (req, res) => {
     return
   }
 
+  if (runInProgress) {
+    res.status(409).json({ error: 'A benchmark run is already in progress. Stop it before starting another.' })
+    return
+  }
+
   const config = parsed.data
   const runId  = uuidv4()
   const io     = getIo()
 
+  runInProgress = true
   insertRun(runId, config.name, config)
   res.json({ runId })
 
@@ -63,6 +73,8 @@ router.post('/start', async (req, res) => {
       updateRunPhase(runId, 'error', Date.now())
       io.emit('phase:change', { phase: 'error', runId })
       console.log({ msg: 'run error', runId, err: String(err), ts: Date.now() })
+    } finally {
+      runInProgress = false
     }
   })
 })
@@ -71,8 +83,9 @@ router.post('/stop', (req, res) => {
   const { runId } = req.body as { runId: string }
   if (!runId) { res.status(400).json({ error: 'runId required' }); return }
   stopMetricsCollector()
-  updateRunPhase(runId, 'error', Date.now())
-  getIo().emit('phase:change', { phase: 'error', runId })
+  updateRunPhase(runId, 'stopped', Date.now())
+  getIo().emit('phase:change', { phase: 'stopped', runId })
+  runInProgress = false
   res.json({ ok: true })
 })
 

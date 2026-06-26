@@ -9,6 +9,7 @@ const PHASE_CONFIG: Record<string, { label: string; color: string }> = {
   warmup:       { label: '⚡ Warmup Phase — heating CUDA graphs…',        color: 'border-amber-accent/50 bg-amber-accent/10 text-amber-accent' },
   benchmarking: { label: '🚀 Benchmarking — collecting results…',          color: 'border-blue-accent/50 bg-blue-accent/10 text-blue-accent' },
   complete:     { label: '✓ Benchmark Complete',                             color: 'border-green-accent/50 bg-green-accent/10 text-green-accent' },
+  stopped:      { label: '■ Run stopped',                                    color: 'border-muted/40 bg-muted/10 text-muted' },
   error:        { label: '✗ Benchmark Error — check logs',                  color: 'border-red-accent/50 bg-red-accent/10 text-red-accent' },
 }
 

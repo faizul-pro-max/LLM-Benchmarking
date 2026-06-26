@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Header } from '@/components/controls/Header'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { MetricsPanel } from '@/components/metrics/MetricsPanel'
@@ -8,7 +8,14 @@ import { useSocket } from '@/hooks/useSocket'
 import { useRun } from '@/hooks/useRun'
 import { useHealth } from '@/hooks/useHealth'
 import { useMetrics } from '@/hooks/useMetrics'
+import { newChatSession } from '@/hooks/useChatSession'
+import { useMetricsStore } from '@/store/metricsStore'
 import { startMockData } from '@/utils/mockData'
+
+/** Reads the current `?session=` chat id from the URL (or null). */
+function readSessionFromUrl(): string | null {
+  return new URLSearchParams(window.location.search).get('session')
+}
 
 const EXPERIMENT_NAME = 'Baseline - vLLM 0.6.3 - Qwen2.5-7B'
 
@@ -26,12 +33,50 @@ export default function App() {
     setCategory,
   } = useRun(socket)
 
-  const { vllmOk, model } = useHealth()
+  const { vllmOk, model, experiment } = useHealth()
   const { latest } = useMetrics()
   // Single exclusive navigation state. The three top-level views are mutually
   // exclusive tabs — switching one always leaves a well-defined view (no stale
   // left-panel state). 'benchmark' is the default landing view.
   const [view, setView] = useState<'benchmark' | 'chat' | 'benchmarks'>('benchmark')
+
+  // Active chat session id App drives down to ConversationPanel + metricsStore.
+  const [chatSession, setChatSession] = useState<string | null>(null)
+  const setMetricsSession = useMetricsStore((s) => s.setSession)
+  const clearMetrics = useMetricsStore((s) => s.clear)
+
+  // Enter chat on a brand-new session: mint id, reset chat + metrics buffer.
+  const startNewChat = useCallback(() => {
+    const id = newChatSession()
+    clearMetrics()
+    setChatSession(id)
+    setView('chat')
+  }, [clearMetrics])
+
+  // Enter chat continuing the last session: keep existing id + metrics buffer.
+  const continueChat = useCallback(() => {
+    setChatSession(readSessionFromUrl() ?? newChatSession())
+    setView('chat')
+  }, [])
+
+  // Plain Chat toggle: continue current session on enter, leave on exit.
+  const toggleChat = useCallback(() => {
+    setView((v) => {
+      if (v === 'chat') return 'benchmark'
+      setChatSession((cur) => cur ?? readSessionFromUrl() ?? newChatSession())
+      return 'chat'
+    })
+  }, [])
+
+  // Keep the metrics store scoped to the active chat session, and emit the
+  // shared `chat:session` event so the backend tags/persists per session.
+  // On leaving chat we clear the scope and tell the backend to stop tagging.
+  useEffect(() => {
+    const inChat = view === 'chat'
+    const id = inChat ? chatSession : null
+    setMetricsSession(id)
+    socket?.emit('chat:session', { sessionId: id })
+  }, [view, chatSession, socket, setMetricsSession])
 
   // Start mock data only when truly disconnected from the backend. When connected
   // (even idle), live metrics:snapshot events drive every chart.
@@ -44,8 +89,12 @@ export default function App() {
     return () => clearTimeout(timeout)
   }, [connected])
 
+  // Prefer the live experiment the GPU agent is serving; fall back to the
+  // static label when no agent/experiment is connected.
+  const experimentName = experiment?.name ?? EXPERIMENT_NAME
+
   const handleStart = () => {
-    start(EXPERIMENT_NAME)
+    start(experimentName)
   }
 
   return (
@@ -53,10 +102,14 @@ export default function App() {
       <Header
         connected={connected}
         rtt={rtt}
-        experimentName={EXPERIMENT_NAME}
+        experimentName={experimentName}
+        experimentSummary={experiment?.summary ?? null}
         gpuName={latest?.gpu_name ?? null}
+        model={model}
         chatActive={view === 'chat'}
-        onChatClick={() => setView((v) => (v === 'chat' ? 'benchmark' : 'chat'))}
+        onChatClick={toggleChat}
+        onNewChat={startNewChat}
+        onContinueChat={continueChat}
         benchmarksActive={view === 'benchmarks'}
         onBenchmarksClick={() => setView((v) => (v === 'benchmarks' ? 'benchmark' : 'benchmarks'))}
       />
@@ -71,6 +124,7 @@ export default function App() {
               <ConversationPanel
                 model={model}
                 vllmOk={vllmOk}
+                sessionId={chatSession}
                 onClose={() => setView('benchmark')}
               />
             ) : (
@@ -90,7 +144,7 @@ export default function App() {
 
           {/* Right panel — remaining width — live GPU metrics, always visible */}
           <div className="flex-1 overflow-hidden">
-            <MetricsPanel mode={view === 'chat' ? 'chat' : 'benchmark'} />
+            <MetricsPanel mode={view === 'chat' ? 'chat' : 'benchmark'} rtt={rtt} />
           </div>
         </div>
       )}

@@ -6,6 +6,7 @@ import {
   getSessionMessages,
   clearSession,
 } from '../db/queries/chat'
+import { getSnapshotsByChatSession } from '../db/queries/snapshots'
 
 const router = Router()
 
@@ -29,8 +30,15 @@ const ChatSchema = z.object({
 
 // SSE event protocol (one JSON object per `data:` line):
 //   { type: 'token', text }                                  — a streamed delta
+//   { type: 'progress', tokens, tps }                        — interim throughput (safe to ignore)
 //   { type: 'done', ttft_ms, total_ms, tokens, tps }         — final metrics
 //   { type: 'error', error }                                 — failure
+//
+// The 'progress' event is additive: existing consumers read type/text on tokens
+// and the metrics on 'done'. It carries a running tok/s so a reply reflects live
+// decode speed while streaming, not only a final number. Emitted at most once per
+// PROGRESS_INTERVAL_MS so it stays lightweight.
+const PROGRESS_INTERVAL_MS = 250
 router.post('/', async (req, res) => {
   const parsed = ChatSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -86,6 +94,19 @@ router.post('/', async (req, res) => {
   const t0 = Date.now()
   let ttft = 0
   let tokens = 0
+  let lastProgressTs = 0
+
+  // Emit an interim throughput event, throttled to PROGRESS_INTERVAL_MS. Running
+  // tok/s is measured from first token (ttft) so it reflects decode speed, not the
+  // initial prefill wait. No-op until at least one token has arrived.
+  const maybeEmitProgress = (now: number) => {
+    if (!ttft || tokens === 0) return
+    if (now - lastProgressTs < PROGRESS_INTERVAL_MS) return
+    lastProgressTs = now
+    const decodeMs = now - (t0 + ttft)
+    const tps = decodeMs > 0 ? tokens / (decodeMs / 1000) : 0
+    send({ type: 'progress', tokens, tps })
+  }
 
   // Mock mode — lets the chat UI work with no GPU connected
   if (!VLLM_URL) {
@@ -94,11 +115,13 @@ router.post('/', async (req, res) => {
       'Token timing and throughput will be measured per message so you can feel the latency.'
     for (const word of reply.split(' ')) {
       await new Promise((r) => setTimeout(r, 35))
-      if (!ttft) ttft = Date.now() - t0
+      const now = Date.now()
+      if (!ttft) ttft = now - t0
       tokens++
       const text = word + ' '
       assistantText += text
       send({ type: 'token', text })
+      maybeEmitProgress(now)
     }
     const total = Date.now() - t0
     const tps = tokens / (total / 1000 || 1)
@@ -159,10 +182,12 @@ router.post('/', async (req, res) => {
           }
           const delta = j.choices?.[0]?.delta?.content ?? ''
           if (delta) {
-            if (!ttft) ttft = Date.now() - t0
+            const now = Date.now()
+            if (!ttft) ttft = now - t0
             tokens++
             assistantText += delta
             send({ type: 'token', text: delta })
+            maybeEmitProgress(now)
           }
           // Final usage chunk (stream_options.include_usage) — authoritative token count
           if (j.usage?.completion_tokens != null) tokens = j.usage.completion_tokens
@@ -194,6 +219,19 @@ router.get('/session/:id', (req, res) => {
   } catch (err) {
     console.log({ msg: 'chat get session failed', sessionId: id, err: String(err), ts: Date.now() })
     res.json({ sessionId: id, messages: [] })
+  }
+})
+
+// GET /chat/session/:id/metrics — persisted GPU/vLLM snapshots captured while
+// this chat session was active, ordered by ts. Missing session => empty (200).
+router.get('/session/:id/metrics', (req, res) => {
+  const id = req.params.id
+  try {
+    const snapshots = getSnapshotsByChatSession(id)
+    res.json({ sessionId: id, snapshots })
+  } catch (err) {
+    console.log({ msg: 'chat get session metrics failed', sessionId: id, err: String(err), ts: Date.now() })
+    res.json({ sessionId: id, snapshots: [] })
   }
 })
 

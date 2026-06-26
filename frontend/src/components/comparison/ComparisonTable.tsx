@@ -74,9 +74,11 @@ export function ComparisonTable() {
               <th className="px-3 py-2 text-left text-muted font-semibold uppercase text-[10px] tracking-wider">Experiment</th>
               <th className="px-3 py-2 text-center text-muted font-semibold uppercase text-[10px] tracking-wider">TTFT P50</th>
               <th className="px-3 py-2 text-center text-muted font-semibold uppercase text-[10px] tracking-wider">TTFT P90</th>
+              <th className="px-3 py-2 text-center text-muted font-semibold uppercase text-[10px] tracking-wider">TTFT P99</th>
               <th className="px-3 py-2 text-center text-muted font-semibold uppercase text-[10px] tracking-wider">Tok/s</th>
               <th className="px-3 py-2 text-center text-muted font-semibold uppercase text-[10px] tracking-wider">GPU Util</th>
               <th className="px-3 py-2 text-center text-muted font-semibold uppercase text-[10px] tracking-wider">KV Cache</th>
+              <th className="px-3 py-2 text-center text-muted font-semibold uppercase text-[10px] tracking-wider">TPOT</th>
             </tr>
           </thead>
           <tbody>
@@ -104,9 +106,11 @@ export function ComparisonTable() {
                 </td>
                 <DiffCell value={row.ttft_p50_ms} pct={row.pct_ttft_p50} fmt={(v) => fmtMs(v)} />
                 <DiffCell value={row.ttft_p90_ms} pct={row.pct_ttft_p90} fmt={(v) => fmtMs(v)} />
+                <DiffCell value={row.ttft_p99_ms ?? null} pct={row.pct_ttft_p99} fmt={(v) => fmtMs(v)} />
                 <TpsDiffCell value={row.tokens_per_sec_avg} pct={row.pct_tps} />
                 <DiffCell value={row.gpu_util_avg} pct={row.pct_gpu} fmt={(v) => fmtPct(v)} />
                 <DiffCell value={row.kv_cache_avg} pct={row.pct_kv} fmt={(v) => fmtPct(v)} />
+                <DiffCell value={row.tpot_p50_ms} pct={row.pct_tpot} fmt={(v) => fmtMs(v)} />
               </tr>
             ))}
           </tbody>

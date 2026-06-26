@@ -40,4 +40,8 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   'run:start': (config: { name: string; concurrency: number; category: string; promptCount: number }, cb: (runId: string) => void) => void
   'run:stop': (payload: { runId: string }) => void
+  // Declares the active chat session. null when the client leaves chat. While a
+  // session is active, metrics:snapshot payloads are tagged with session_id and
+  // persisted tied to that session.
+  'chat:session': (payload: { sessionId: string | null }) => void
 }

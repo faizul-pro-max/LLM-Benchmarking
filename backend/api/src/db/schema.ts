@@ -36,7 +36,7 @@ export function runMigrations() {
 
     CREATE TABLE IF NOT EXISTS metric_snapshots (
       id                INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id            TEXT NOT NULL REFERENCES runs(id),
+      run_id            TEXT REFERENCES runs(id),
       ts                INTEGER NOT NULL,
       transport_ms      INTEGER,
       gpu_util          INTEGER,
@@ -98,4 +98,68 @@ export function runMigrations() {
 
     CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id);
   `)
+
+  migrateMetricSnapshotsChatSession()
+}
+
+// Idempotent migration: metric_snapshots originally keyed on run_id (NOT NULL).
+// Chat-session metrics need run_id NULL + a new chat_session_id column. We:
+//   1. Add chat_session_id if it doesn't already exist (guarded ALTER).
+//   2. If the existing run_id column is still NOT NULL, rebuild the table so
+//      chat snapshots (run_id NULL) can be inserted. SQLite can't relax NOT NULL
+//      in place, so a copy-and-swap rebuild is the standard least-surprising path.
+function migrateMetricSnapshotsChatSession(): void {
+  type ColInfo = { name: string; notnull: number }
+  const cols = db.prepare(`PRAGMA table_info(metric_snapshots)`).all() as ColInfo[]
+
+  const hasChatSessionId = cols.some((c) => c.name === 'chat_session_id')
+  if (!hasChatSessionId) {
+    try {
+      db.exec(`ALTER TABLE metric_snapshots ADD COLUMN chat_session_id TEXT`)
+    } catch (err) {
+      // Column may already exist on a racing/older DB — ignore duplicate errors.
+      console.log({ msg: 'metric_snapshots chat_session_id add skipped', err: String(err), ts: Date.now() })
+    }
+  }
+
+  const runIdCol = cols.find((c) => c.name === 'run_id')
+  const runIdIsNotNull = runIdCol ? runIdCol.notnull === 1 : false
+  if (runIdIsNotNull) {
+    // Rebuild the table to drop the NOT NULL constraint on run_id, preserving rows.
+    db.exec(`
+      BEGIN;
+      CREATE TABLE metric_snapshots_new (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id            TEXT REFERENCES runs(id),
+        chat_session_id   TEXT,
+        ts                INTEGER NOT NULL,
+        transport_ms      INTEGER,
+        gpu_util          INTEGER,
+        vram_used_mb      INTEGER,
+        vram_total_mb     INTEGER,
+        power_w           REAL,
+        temp_c            INTEGER,
+        gpu_name          TEXT,
+        kv_cache_pct      REAL,
+        requests_running  INTEGER,
+        requests_waiting  INTEGER,
+        requests_swapped  INTEGER,
+        tokens_per_sec    REAL,
+        ttft_p50_ms       REAL,
+        ttft_p99_ms       REAL
+      );
+      INSERT INTO metric_snapshots_new
+        (id, run_id, chat_session_id, ts, transport_ms, gpu_util, vram_used_mb,
+         vram_total_mb, power_w, temp_c, gpu_name, kv_cache_pct, requests_running,
+         requests_waiting, requests_swapped, tokens_per_sec, ttft_p50_ms, ttft_p99_ms)
+      SELECT
+        id, run_id, chat_session_id, ts, transport_ms, gpu_util, vram_used_mb,
+        vram_total_mb, power_w, temp_c, gpu_name, kv_cache_pct, requests_running,
+        requests_waiting, requests_swapped, tokens_per_sec, ttft_p50_ms, ttft_p99_ms
+      FROM metric_snapshots;
+      DROP TABLE metric_snapshots;
+      ALTER TABLE metric_snapshots_new RENAME TO metric_snapshots;
+      COMMIT;
+    `)
+  }
 }

@@ -37,6 +37,25 @@ async function checkGpu() {
   }
 }
 
+/** Active benchmark experiment the GPU agent is currently serving.
+ *  The agent's /experiment endpoint reports the live scenario config (name,
+ *  backend, model, launch command). Returns the experiment object when one is
+ *  active, otherwise null — never throws, so it can't degrade /health. */
+async function getActiveExperiment() {
+  if (!GPU_AGENT_URL) return null
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fetch = require('node-fetch') as typeof import('node-fetch').default
+    const headers = GPU_AGENT_API_KEY ? { 'x-api-key': GPU_AGENT_API_KEY } : undefined
+    const res = await (fetch as Function)(`${GPU_AGENT_URL}/experiment`, { signal: AbortSignal.timeout(2500), headers })
+    if (!res.ok) return null
+    const data = await res.json() as { active?: boolean; experiment?: Record<string, unknown> }
+    return data?.active && data.experiment ? data.experiment : null
+  } catch {
+    return null
+  }
+}
+
 async function checkVllm() {
   if (!VLLM_URL) return { status: 'not_configured' as const, url: '' }
   try {
@@ -63,7 +82,7 @@ function checkSqlite() {
 }
 
 router.get('/', async (_req, res) => {
-  const [redis, gpu_agent, vllm] = await Promise.all([checkRedis(), checkGpu(), checkVllm()])
+  const [redis, gpu_agent, vllm, experiment] = await Promise.all([checkRedis(), checkGpu(), checkVllm(), getActiveExperiment()])
   const sqlite = checkSqlite()
 
   const status =
@@ -78,6 +97,7 @@ router.get('/', async (_req, res) => {
     vllm_url: cfg.vllm_url,
     gpu_agent_url: cfg.gpu_agent_url,
     defaults: cfg.defaults,
+    experiment,        // active benchmark experiment from the GPU agent, or null
     doctor: '/health/doctor',
   }
 
@@ -103,6 +123,10 @@ router.get('/gpu', async (_req, res) => {
 
 router.get('/vllm', async (_req, res) => {
   res.json(await checkVllm())
+})
+
+router.get('/experiment', async (_req, res) => {
+  res.json({ experiment: await getActiveExperiment() })
 })
 
 export default router
