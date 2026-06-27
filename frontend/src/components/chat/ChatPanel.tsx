@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { RunControls } from './RunControls'
 import { RequestCard } from './RequestCard'
+import { RequestDetailModal } from './RequestDetailModal'
 import { CategoryPills } from './CategoryPills'
 import { PhaseBanner } from '@/components/controls/PhaseBanner'
 import type { RunPhase } from '@/types/experiment'
@@ -10,7 +11,8 @@ interface ChatPanelProps {
   phase: RunPhase
   concurrency: number
   category: 'random' | 'shared_prefix' | 'exact_repeat'
-  promptCount: number
+  promptSource: 'sheets' | 'local'
+  promptsByCategory: Record<string, number>
   requests: Map<string, RequestResult>
   onStart: () => void
   onStop: () => void
@@ -22,7 +24,8 @@ export function ChatPanel({
   phase,
   concurrency,
   category,
-  promptCount,
+  promptSource,
+  promptsByCategory,
   requests,
   onStart,
   onStop,
@@ -31,6 +34,10 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const reqArray = useMemo(() => Array.from(requests.values()), [requests])
   const activeCount = reqArray.filter((r) => r.state === 'decoding' || r.state === 'prefilling').length
+
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selectedIndex = reqArray.findIndex((r) => r.id === selectedId)
+  const selected = selectedIndex >= 0 ? reqArray[selectedIndex] : null
 
   return (
     <div className="flex flex-col h-full border-r border-border bg-panel">
@@ -63,7 +70,12 @@ export function ChatPanel({
         ) : (
           <div className="grid grid-cols-2 gap-2">
             {reqArray.map((req, i) => (
-              <RequestCard key={req.id} req={req} index={i} />
+              <RequestCard
+                key={req.id}
+                req={req}
+                index={i}
+                onClick={() => setSelectedId(req.id)}
+              />
             ))}
           </div>
         )}
@@ -72,8 +84,17 @@ export function ChatPanel({
       <CategoryPills
         value={category}
         onChange={onCategoryChange}
-        promptCount={promptCount}
+        source={promptSource}
+        byCategory={promptsByCategory}
       />
+
+      {selected && (
+        <RequestDetailModal
+          req={selected}
+          index={selectedIndex}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
     </div>
   )
 }

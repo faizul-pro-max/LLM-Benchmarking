@@ -7,6 +7,7 @@ import { BenchmarksView } from '@/components/benchmarks/BenchmarksView'
 import { useSocket } from '@/hooks/useSocket'
 import { useRun } from '@/hooks/useRun'
 import { useHealth } from '@/hooks/useHealth'
+import { usePrompts } from '@/hooks/usePrompts'
 import { useMetrics } from '@/hooks/useMetrics'
 import { newChatSession } from '@/hooks/useChatSession'
 import { useMetricsStore } from '@/store/metricsStore'
@@ -26,7 +27,6 @@ export default function App() {
     requests,
     concurrency,
     category,
-    promptCount,
     start,
     stop,
     setConcurrency,
@@ -34,6 +34,7 @@ export default function App() {
   } = useRun(socket)
 
   const { vllmOk, model, experiment } = useHealth()
+  const { source: promptSource, byCategory: promptsByCategory } = usePrompts()
   const { latest } = useMetrics()
   // Single exclusive navigation state. The three top-level views are mutually
   // exclusive tabs — switching one always leaves a well-defined view (no stale
@@ -132,7 +133,8 @@ export default function App() {
                 phase={phase}
                 concurrency={concurrency}
                 category={category}
-                promptCount={promptCount}
+                promptSource={promptSource}
+                promptsByCategory={promptsByCategory}
                 requests={requests}
                 onStart={handleStart}
                 onStop={stop}

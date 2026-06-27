@@ -44,6 +44,9 @@ export interface RequestResult {
 export interface RequestUpdate {
   id: string
   state: RequestState
+  prompt_text?: string
+  prompt_id?: string
+  category?: RequestCategory
   ttft_ms?: number
   prefill_ms?: number
   token_count?: number

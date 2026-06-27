@@ -55,7 +55,13 @@ async function runSingleRequest(
     token_count: 0,
   }
 
-  emitUpdate(io, { id, state: 'queued' })
+  emitUpdate(io, {
+    id,
+    state: 'queued',
+    prompt_text: prompt.text,
+    prompt_id: prompt.id,
+    category: prompt.category as RequestResult['category'],
+  })
 
   if (!VLLM_URL) {
     // Mock mode — simulate timing
@@ -83,7 +89,7 @@ async function runSingleRequest(
       tokenCount++
       tokenText += words[Math.floor(Math.random() * words.length)] + ' '
       if (tokenCount % TOKEN_BATCH === 0) {
-        emitUpdate(io, { id, state: 'decoding', token_count: tokenCount, tokens_text: tokenText.slice(-100) })
+        emitUpdate(io, { id, state: 'decoding', token_count: tokenCount, tokens_text: tokenText })
       }
     }
     result.t3 = Date.now()
@@ -92,7 +98,7 @@ async function runSingleRequest(
     result.token_count = tokenCount
     result.tpot_ms = result.decode_ms / tokenCount
     result.finish_reason = 'stop'
-    emitUpdate(io, { id, state: 'done', token_count: tokenCount, tpot_ms: result.tpot_ms, total_ms: result.total_ms, finish_reason: 'stop' })
+    emitUpdate(io, { id, state: 'done', token_count: tokenCount, tokens_text: tokenText, tpot_ms: result.tpot_ms, total_ms: result.total_ms, finish_reason: 'stop' })
     return result
   }
 
@@ -148,7 +154,7 @@ async function runSingleRequest(
           tokenText += text
           const now = Date.now()
           if (tokenCount % TOKEN_BATCH === 0 || now - lastBatchTs >= TOKEN_BATCH_MS) {
-            emitUpdate(io, { id, state: 'decoding', token_count: tokenCount, tokens_text: tokenText.slice(-100) })
+            emitUpdate(io, { id, state: 'decoding', token_count: tokenCount, tokens_text: tokenText })
             lastBatchTs = now
           }
 
@@ -164,7 +170,7 @@ async function runSingleRequest(
     result.total_ms    = result.t3 - result.t0
     result.token_count = tokenCount
     result.tpot_ms     = tokenCount > 0 ? result.decode_ms / tokenCount : 0
-    emitUpdate(io, { id, state: 'done', token_count: tokenCount, tpot_ms: result.tpot_ms, total_ms: result.total_ms, finish_reason: result.finish_reason })
+    emitUpdate(io, { id, state: 'done', token_count: tokenCount, tokens_text: tokenText, tpot_ms: result.tpot_ms, total_ms: result.total_ms, finish_reason: result.finish_reason })
   } catch (err) {
     result.error = String(err)
     result.finish_reason = 'error'

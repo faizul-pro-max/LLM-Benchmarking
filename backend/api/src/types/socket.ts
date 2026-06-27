@@ -9,6 +9,11 @@ export interface PhaseChangePayload {
 export interface RequestUpdatePayload {
   id: string
   state: RequestState
+  /** Sent once on the initial 'queued' update so the UI can render the prompt
+   *  preview, real per-request category badge, and prompt id. */
+  prompt_text?: string
+  prompt_id?: string
+  category?: 'random' | 'shared_prefix' | 'exact_repeat'
   ttft_ms?: number
   prefill_ms?: number
   token_count?: number

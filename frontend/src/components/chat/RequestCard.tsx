@@ -5,6 +5,7 @@ import { fmtMs } from '@/utils/formatters'
 interface RequestCardProps {
   req: RequestResult
   index: number
+  onClick?: () => void
 }
 
 const STATE_STYLES = {
@@ -21,13 +22,17 @@ const CATEGORY_LABELS = {
   exact_repeat:  'repeat',
 }
 
-export function RequestCard({ req, index }: RequestCardProps) {
+export function RequestCard({ req, index, onClick }: RequestCardProps) {
   const style = STATE_STYLES[req.state]
 
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
+      title="Click to view full request details"
       className={clsx(
-        'rounded border-l-2 bg-card p-2 flex flex-col gap-1 text-[11px]',
+        'text-left rounded border-l-2 bg-card p-2 flex flex-col gap-1 text-[11px]',
+        'cursor-pointer hover:ring-1 hover:ring-blue-accent/50 transition-shadow',
         style.border,
         req.state === 'done' && 'opacity-80'
       )}
@@ -84,6 +89,6 @@ export function RequestCard({ req, index }: RequestCardProps) {
           />
         </div>
       )}
-    </div>
+    </button>
   )
 }

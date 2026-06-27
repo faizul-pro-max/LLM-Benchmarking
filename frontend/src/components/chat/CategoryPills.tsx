@@ -5,7 +5,9 @@ type Category = 'random' | 'shared_prefix' | 'exact_repeat'
 interface CategoryPillsProps {
   value: Category
   onChange: (c: Category) => void
-  promptCount: number
+  /** Real prompt pool info from /api/prompts. */
+  source: 'sheets' | 'local'
+  byCategory: Record<string, number>
 }
 
 const PILLS: { value: Category; label: string }[] = [
@@ -14,7 +16,14 @@ const PILLS: { value: Category; label: string }[] = [
   { value: 'exact_repeat',  label: 'Exact Repeat' },
 ]
 
-export function CategoryPills({ value, onChange, promptCount }: CategoryPillsProps) {
+const SOURCE_LABEL: Record<'sheets' | 'local', string> = {
+  sheets: 'Google Sheets',
+  local: 'local set',
+}
+
+export function CategoryPills({ value, onChange, source, byCategory }: CategoryPillsProps) {
+  const available = byCategory[value] ?? 0
+
   return (
     <div className="px-3 py-2 border-t border-border shrink-0">
       <div className="flex gap-1.5 mb-1.5">
@@ -34,7 +43,7 @@ export function CategoryPills({ value, onChange, promptCount }: CategoryPillsPro
         ))}
       </div>
       <p className="text-[10px] text-muted">
-        {promptCount} prompts loaded · Google Sheets
+        {available} {value.replace('_', ' ')} prompt{available === 1 ? '' : 's'} · {SOURCE_LABEL[source]}
       </p>
     </div>
   )

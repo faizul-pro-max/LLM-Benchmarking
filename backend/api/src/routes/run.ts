@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import { getIo } from '../server'
 import { insertRun, updateRunPhase, getRunById } from '../db/queries/runs'
-import { getCachedPrompts } from '../utils/sheetsLoader'
+import { selectPrompts } from '../utils/sheetsLoader'
 import { startMetricsCollector, stopMetricsCollector } from '../utils/metricsCollector'
 import { runWarmup, runBenchmark } from '../utils/loadGenerator'
 import { computeAggregatedResult, saveAggregatedResult } from '../utils/aggregator'
@@ -44,7 +44,10 @@ router.post('/start', async (req, res) => {
   // Run pipeline async (non-blocking)
   setImmediate(async () => {
     try {
-      const prompts = getCachedPrompts().slice(0, config.promptCount)
+      // Honour the selected category: filter the pool to that category and cycle
+      // up to promptCount (exact_repeat → same prompt repeated, shared_prefix →
+      // prompts sharing a long prefix, random → varied prompts).
+      const prompts = selectPrompts(config.category, config.promptCount)
 
       // Warmup
       updateRunPhase(runId, 'warmup')
