@@ -23,4 +23,8 @@ export interface MetricsSnapshot extends GpuMetrics, VllmMetrics {
   // Set while a chat session is active so the dashboard + persistence can group
   // snapshots by conversation. Absent for idle/benchmark-run snapshots.
   session_id?: string
+  // Raw vLLM Prometheus text this snapshot was parsed from. Persisted to SQLite
+  // for after-the-fact re-inspection, but stripped before emitting to clients to
+  // keep the 500ms broadcast payload small.
+  vllm_raw?: string
 }

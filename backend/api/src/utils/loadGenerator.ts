@@ -10,6 +10,26 @@ const VLLM_API_KEY   = process.env.VLLM_API_KEY ?? ''
 const TOKEN_BATCH    = 5
 const TOKEN_BATCH_MS = 100
 
+// Cancellation: set by cancelRun() (Stop button → POST /run/stop). Queued requests
+// short-circuit before firing, and in-flight vLLM streams are aborted via their
+// AbortController so the pipeline drains quickly instead of running to completion.
+let cancelled = false
+const inflight = new Set<AbortController>()
+
+export function isRunCancelled(): boolean {
+  return cancelled
+}
+
+export function cancelRun(): void {
+  cancelled = true
+  for (const ctrl of inflight) ctrl.abort()
+}
+
+export function resetRunCancel(): void {
+  cancelled = false
+  inflight.clear()
+}
+
 function makeLimit(concurrency: number) {
   let active = 0
   const queue: Array<() => void> = []
@@ -42,7 +62,10 @@ async function runSingleRequest(
   prompt: Prompt,
   phase: 'warmup' | 'benchmark',
   reqIndex: number,
-): Promise<RequestResult> {
+): Promise<RequestResult | null> {
+  // Stop pressed while this request was still queued — never fire it.
+  if (cancelled) return null
+
   const id = uuidv4()
   const result: RequestResult = {
     id,
@@ -85,6 +108,7 @@ async function runSingleRequest(
     const totalTokens = Math.floor(Math.random() * 150 + 50)
     const words = ['inference', 'model', 'token', 'cache', 'GPU', 'latency', 'batch', 'prefill', 'decode', 'attention']
     while (tokenCount < totalTokens) {
+      if (cancelled) break
       await mockDelay(8)
       tokenCount++
       tokenText += words[Math.floor(Math.random() * words.length)] + ' '
@@ -96,9 +120,10 @@ async function runSingleRequest(
     result.decode_ms = result.t3 - result.t2
     result.total_ms  = result.t3 - result.t0
     result.token_count = tokenCount
-    result.tpot_ms = result.decode_ms / tokenCount
-    result.finish_reason = 'stop'
-    emitUpdate(io, { id, state: 'done', token_count: tokenCount, tokens_text: tokenText, tpot_ms: result.tpot_ms, total_ms: result.total_ms, finish_reason: 'stop' })
+    result.tpot_ms = tokenCount > 0 ? result.decode_ms / tokenCount : 0
+    result.finish_reason = cancelled ? 'stopped' : 'stop'
+    emitUpdate(io, { id, state: 'done', token_count: tokenCount, tokens_text: tokenText, tpot_ms: result.tpot_ms, total_ms: result.total_ms, finish_reason: result.finish_reason })
+    insertRequest(result)
     return result
   }
 
@@ -107,9 +132,14 @@ async function runSingleRequest(
   const fetch = require('node-fetch') as typeof import('node-fetch').default
   result.t0 = Date.now()
 
+  // Registered so cancelRun() can abort this stream mid-flight.
+  const controller = new AbortController()
+  inflight.add(controller)
+
   try {
     const res = await fetch(`${VLLM_URL}/v1/completions`, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(VLLM_API_KEY ? { Authorization: `Bearer ${VLLM_API_KEY}` } : {}),
@@ -131,6 +161,7 @@ async function runSingleRequest(
 
     const body = res.body as AsyncIterable<Buffer>
     for await (const chunk of body) {
+      if (cancelled) break
       const lines = chunk.toString().split('\n').filter((l) => l.startsWith('data: '))
       for (const line of lines) {
         const data = line.slice(6).trim()
@@ -170,13 +201,22 @@ async function runSingleRequest(
     result.total_ms    = result.t3 - result.t0
     result.token_count = tokenCount
     result.tpot_ms     = tokenCount > 0 ? result.decode_ms / tokenCount : 0
+    if (cancelled && !result.finish_reason) result.finish_reason = 'stopped'
     emitUpdate(io, { id, state: 'done', token_count: tokenCount, tokens_text: tokenText, tpot_ms: result.tpot_ms, total_ms: result.total_ms, finish_reason: result.finish_reason })
   } catch (err) {
-    result.error = String(err)
-    result.finish_reason = 'error'
-    emitUpdate(io, { id, state: 'error', error: result.error })
+    // An aborted stream (Stop pressed) is an intentional halt, not a failure.
+    if (controller.signal.aborted || cancelled) {
+      result.finish_reason = 'stopped'
+    } else {
+      result.error = String(err)
+      result.finish_reason = 'error'
+      emitUpdate(io, { id, state: 'error', error: result.error })
+    }
+  } finally {
+    inflight.delete(controller)
   }
 
+  insertRequest(result)
   return result
 }
 
@@ -190,14 +230,16 @@ export async function runWarmup(
   const warmupPrompts = prompts.slice(0, count)
   const limit = makeLimit(concurrency)
 
+  // Each request persists itself (incremental insert) so a Stop mid-run still
+  // leaves the partial data on disk for aggregation. Skipped (cancelled) requests
+  // resolve to null and are filtered out.
   const results = await Promise.all(
     warmupPrompts.map((p, i) =>
       limit(() => runSingleRequest(io, runId, 0, p, 'warmup', i))
     )
   )
 
-  results.forEach((r: RequestResult) => insertRequest(r))
-  return results
+  return results.filter((r): r is RequestResult => r !== null)
 }
 
 export async function runBenchmark(
@@ -215,6 +257,5 @@ export async function runBenchmark(
     )
   )
 
-  results.forEach((r: RequestResult) => insertRequest(r))
-  return results
+  return results.filter((r): r is RequestResult => r !== null)
 }

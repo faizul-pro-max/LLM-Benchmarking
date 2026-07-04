@@ -3,10 +3,16 @@
 # launch.sh — one command to bring up the whole LLM benchmarking stack:
 #   Redis (docker)  +  API :3001  +  Frontend :7755  +  Worker
 #
+# It can also point the platform at a fresh pair of GPU tunnel URLs first:
+# pass the vLLM and GPU-agent endpoints and launch.sh will flush DNS, wait for
+# both to report healthy, and write them into .env (via scripts/set_endpoints.sh)
+# before starting the stack.
+#
 # Usage:
-#   ./launch.sh           start everything (Ctrl+C stops API/frontend/worker)
-#   ./launch.sh --force   start, killing any process on 3001/7755 without asking
-#   ./launch.sh --stop    stop everything, including the Redis container
+#   ./launch.sh                                   start everything with the current .env
+#   ./launch.sh <vllm_url> <gpu_agent_url>        resolve DNS + set endpoints, then start
+#   ./launch.sh --force                           start, killing any process on 3001/7755 without asking
+#   ./launch.sh --stop                            stop everything, including the Redis container
 #
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -14,6 +20,8 @@ cd "$(dirname "$0")"
 API_PORT=3001
 WEB_PORT=7755
 FORCE=0
+VLLM_ARG=""
+GPU_AGENT_ARG=""
 
 # If a port is taken, report who holds it and ask before killing.
 # --force (or a non-TTY shell with --force) skips the prompt.
@@ -71,18 +79,44 @@ for arg in "$@"; do
     --stop)        stop_all; exit 0 ;;
     --force|-y)    FORCE=1 ;;
     -h|--help)
-      echo "Usage: ./launch.sh [--force|-y] [--stop]"
-      echo "  --force, -y   kill any process on $API_PORT/$WEB_PORT without prompting"
-      echo "  --stop        stop API, frontend, worker, and Redis"
+      echo "Usage: ./launch.sh [<vllm_url> <gpu_agent_url>] [--force|-y] [--stop]"
+      echo "  <vllm_url> <gpu_agent_url>   flush DNS, wait for /health, write both into .env, then start"
+      echo "  --force, -y                  kill any process on $API_PORT/$WEB_PORT without prompting"
+      echo "  --stop                       stop API, frontend, worker, and Redis"
       exit 0 ;;
+    http://*|https://*)
+      if [[ -z "$VLLM_ARG" ]]; then
+        VLLM_ARG="$arg"
+      elif [[ -z "$GPU_AGENT_ARG" ]]; then
+        GPU_AGENT_ARG="$arg"
+      else
+        echo "Unexpected extra endpoint: $arg (expected at most vllm_url and gpu_agent_url)" >&2
+        exit 1
+      fi ;;
     *) echo "Unknown option: $arg (try --help)" >&2; exit 1 ;;
   esac
 done
+
+if [[ -n "$VLLM_ARG" && -z "$GPU_AGENT_ARG" ]]; then
+  echo "✗ Two endpoints are required: ./launch.sh <vllm_url> <gpu_agent_url>" >&2
+  exit 1
+fi
 
 # --- preflight ---
 if ! docker info >/dev/null 2>&1; then
   echo "✗ Docker isn't running. Start Docker Desktop and retry." >&2
   exit 1
+fi
+
+# --- Resolve DNS + set endpoints (only when tunnel URLs were passed) ---
+# set_endpoints.sh flushes the DNS cache, polls each <url>/health until HTTP 200,
+# and writes VLLM_URL / GPU_AGENT_URL into .env (creating it from .env.example
+# if absent). It exits non-zero if an endpoint never becomes healthy, which
+# aborts launch before we start anything.
+if [[ -n "$VLLM_ARG" ]]; then
+  echo "▶ Configuring endpoints (DNS flush + health check)…"
+  scripts/set_endpoints.sh "$VLLM_ARG" "$GPU_AGENT_ARG"
+  echo
 fi
 
 if [[ ! -f .env ]]; then

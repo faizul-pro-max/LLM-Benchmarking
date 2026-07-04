@@ -80,7 +80,7 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
   let vllmData: ReturnType<typeof parseVllmMetrics> = {
     kv_cache_pct: 0, requests_running: 0, requests_waiting: 0,
     requests_swapped: 0, tokens_per_sec: 0, generation_tokens_total: 0,
-    ttft_p50_ms: 0, ttft_p99_ms: 0,
+    ttft_p50_ms: 0, ttft_p99_ms: 0, vllm: '',
   }
 
   if (gpuRes.status === 'fulfilled' && gpuRes.value.ok) {
@@ -111,7 +111,7 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
   //   - Short bursts: a single 500ms tick can land between counter increments and
   //     read 0. Hold the last non-zero rate for TPS_HOLD_MS so the chart doesn't
   //     flap to zero mid-decode, then decay cleanly to 0 once truly idle.
-  const { generation_tokens_total, ...vllmRest } = vllmData
+  const { generation_tokens_total, vllm: vllmRaw, ...vllmRest } = vllmData
   const now = Date.now()
   let tokens_per_sec = 0
   if (prevGenTokens !== null && prevGenTs > 0) {
@@ -146,6 +146,7 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
     gpu_name: gpuData.gpu_name ?? '',
     ...vllmRest,
     tokens_per_sec: Math.round(tokens_per_sec),
+    vllm_raw: vllmRaw,
   }
 }
 
@@ -168,7 +169,10 @@ export function startMetricsLoop(io: Server<ClientToServerEvents, ServerToClient
       // Tag the snapshot with the active chat session (if any) so the dashboard
       // can group live metrics by conversation.
       if (activeChatSessionId) snapshot.session_id = activeChatSessionId
-      io.emit('metrics:snapshot', snapshot)
+      // Emit a lightweight copy to clients — the raw Prometheus text is several KB
+      // and would bloat the 500ms broadcast; it's only needed at rest in SQLite.
+      const { vllm_raw, ...wire } = snapshot
+      io.emit('metrics:snapshot', wire)
       // Persist: benchmark-run snapshots key on run_id; chat-session snapshots key
       // on chat_session_id (run_id NULL). A run takes precedence if both are set.
       if (activeRunId) insertSnapshot(activeRunId, snapshot)

@@ -6,13 +6,13 @@ export function insertSnapshot(runId: string, s: MetricsSnapshot) {
     INSERT INTO metric_snapshots
       (run_id, ts, transport_ms, gpu_util, vram_used_mb, vram_total_mb,
        power_w, temp_c, gpu_name, kv_cache_pct, requests_running,
-       requests_waiting, requests_swapped, tokens_per_sec, ttft_p50_ms, ttft_p99_ms)
+       requests_waiting, requests_swapped, tokens_per_sec, ttft_p50_ms, ttft_p99_ms, vllm_raw)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     runId, s.ts, s.transport_ms, s.gpu_util, s.vram_used_mb, s.vram_total_mb,
     s.power_w, s.temp_c, s.gpu_name, s.kv_cache_pct, s.requests_running,
-    s.requests_waiting, s.requests_swapped ?? 0, s.tokens_per_sec, s.ttft_p50_ms, s.ttft_p99_ms
+    s.requests_waiting, s.requests_swapped ?? 0, s.tokens_per_sec, s.ttft_p50_ms, s.ttft_p99_ms, s.vllm_raw ?? null
   )
 }
 
@@ -23,13 +23,13 @@ export function insertChatSnapshot(sessionId: string, s: MetricsSnapshot) {
     INSERT INTO metric_snapshots
       (run_id, chat_session_id, ts, transport_ms, gpu_util, vram_used_mb, vram_total_mb,
        power_w, temp_c, gpu_name, kv_cache_pct, requests_running,
-       requests_waiting, requests_swapped, tokens_per_sec, ttft_p50_ms, ttft_p99_ms)
+       requests_waiting, requests_swapped, tokens_per_sec, ttft_p50_ms, ttft_p99_ms, vllm_raw)
     VALUES
-      (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     sessionId, s.ts, s.transport_ms, s.gpu_util, s.vram_used_mb, s.vram_total_mb,
     s.power_w, s.temp_c, s.gpu_name, s.kv_cache_pct, s.requests_running,
-    s.requests_waiting, s.requests_swapped ?? 0, s.tokens_per_sec, s.ttft_p50_ms, s.ttft_p99_ms
+    s.requests_waiting, s.requests_swapped ?? 0, s.tokens_per_sec, s.ttft_p50_ms, s.ttft_p99_ms, s.vllm_raw ?? null
   )
 }
 

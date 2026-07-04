@@ -51,7 +51,8 @@ export function runMigrations() {
       requests_swapped  INTEGER,
       tokens_per_sec    REAL,
       ttft_p50_ms       REAL,
-      ttft_p99_ms       REAL
+      ttft_p99_ms       REAL,
+      vllm_raw          TEXT
     );
 
     CREATE TABLE IF NOT EXISTS aggregated_results (
@@ -100,6 +101,22 @@ export function runMigrations() {
   `)
 
   migrateMetricSnapshotsChatSession()
+  migrateMetricSnapshotsVllmRaw()
+}
+
+// Idempotent migration: persist the raw vLLM Prometheus text per snapshot so the
+// full parser input can be re-inspected/re-parsed after the fact. Older DBs lack
+// the column; add it with a guarded ALTER.
+function migrateMetricSnapshotsVllmRaw(): void {
+  type ColInfo = { name: string }
+  const cols = db.prepare(`PRAGMA table_info(metric_snapshots)`).all() as ColInfo[]
+  if (cols.some((c) => c.name === 'vllm_raw')) return
+  try {
+    db.exec(`ALTER TABLE metric_snapshots ADD COLUMN vllm_raw TEXT`)
+  } catch (err) {
+    // Column may already exist on a racing/older DB — ignore duplicate errors.
+    console.log({ msg: 'metric_snapshots vllm_raw add skipped', err: String(err), ts: Date.now() })
+  }
 }
 
 // Idempotent migration: metric_snapshots originally keyed on run_id (NOT NULL).

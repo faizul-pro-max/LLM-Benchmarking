@@ -72,5 +72,6 @@ export function parseVllmMetrics(text: string) {
     generation_tokens_total: parseGauge(text, 'vllm:generation_tokens_total'),
     ttft_p50_ms: interpolatePercentile(ttftBuckets, 50),
     ttft_p99_ms: interpolatePercentile(ttftBuckets, 99),
+    vllm: text
   }
 }

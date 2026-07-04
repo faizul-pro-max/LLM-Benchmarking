@@ -5,7 +5,7 @@ import { getIo } from '../server'
 import { insertRun, updateRunPhase, getRunById } from '../db/queries/runs'
 import { selectPrompts } from '../utils/sheetsLoader'
 import { startMetricsCollector, stopMetricsCollector } from '../utils/metricsCollector'
-import { runWarmup, runBenchmark } from '../utils/loadGenerator'
+import { runWarmup, runBenchmark, cancelRun, resetRunCancel, isRunCancelled } from '../utils/loadGenerator'
 import { computeAggregatedResult, saveAggregatedResult } from '../utils/aggregator'
 
 const router = Router()
@@ -55,22 +55,26 @@ router.post('/start', async (req, res) => {
       startMetricsCollector(io, runId)
       await runWarmup(io, runId, prompts, config.concurrency)
 
-      // 3 benchmark runs
-      updateRunPhase(runId, 'benchmarking')
-      io.emit('phase:change', { phase: 'benchmarking', runId })
-      for (let i = 1; i <= 3; i++) {
-        await runBenchmark(io, runId, prompts, config, i)
+      // 3 benchmark runs — bail out early if Stop was pressed.
+      if (!isRunCancelled()) {
+        updateRunPhase(runId, 'benchmarking')
+        io.emit('phase:change', { phase: 'benchmarking', runId })
+        for (let i = 1; i <= 3 && !isRunCancelled(); i++) {
+          await runBenchmark(io, runId, prompts, config, i)
+        }
       }
 
-      // Aggregate
+      // Aggregate whatever was collected — this is the "collect" step for both a
+      // natural finish and an early Stop (partial results are persisted per-request).
       stopMetricsCollector()
       const summary = computeAggregatedResult(runId)
       saveAggregatedResult(summary)
-      updateRunPhase(runId, 'complete', Date.now())
-      io.emit('phase:change', { phase: 'complete', runId })
+      const finalPhase = isRunCancelled() ? 'stopped' : 'complete'
+      updateRunPhase(runId, finalPhase, Date.now())
+      io.emit('phase:change', { phase: finalPhase, runId })
       io.emit('run:complete', { runId, summary })
 
-      console.log({ msg: 'run complete', runId, ts: Date.now() })
+      console.log({ msg: 'run finished', runId, phase: finalPhase, ts: Date.now() })
     } catch (err) {
       stopMetricsCollector()
       updateRunPhase(runId, 'error', Date.now())
@@ -78,6 +82,7 @@ router.post('/start', async (req, res) => {
       console.log({ msg: 'run error', runId, err: String(err), ts: Date.now() })
     } finally {
       runInProgress = false
+      resetRunCancel()
     }
   })
 })
@@ -85,10 +90,14 @@ router.post('/start', async (req, res) => {
 router.post('/stop', (req, res) => {
   const { runId } = req.body as { runId: string }
   if (!runId) { res.status(400).json({ error: 'runId required' }); return }
+  // No active pipeline — nothing to cancel. Avoid setting the cancel flag here,
+  // which (without a pipeline to reset it) would poison the next run.
+  if (!runInProgress) { res.json({ ok: true, alreadyStopped: true }); return }
+  // Stop metrics persistence immediately and signal the in-flight pipeline to halt
+  // (aborts streaming requests). The pipeline then drains, aggregates the partial
+  // results, and emits run:complete — so the collect step is driven from one place.
   stopMetricsCollector()
-  updateRunPhase(runId, 'stopped', Date.now())
-  getIo().emit('phase:change', { phase: 'stopped', runId })
-  runInProgress = false
+  cancelRun()
   res.json({ ok: true })
 })
 

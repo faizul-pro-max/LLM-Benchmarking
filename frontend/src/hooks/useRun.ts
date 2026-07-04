@@ -11,7 +11,7 @@ export function useRun(_socket: Socket | null) {
   const category = useRunStore((s) => s.category)
   const promptCount = useRunStore((s) => s.promptCount)
   const summary = useRunStore((s) => s.summary)
-  const { startRun, reset, setConcurrency, setCategory, setPromptCount } = useRunStore.getState()
+  const { startRun, setConcurrency, setCategory, setPromptCount } = useRunStore.getState()
 
   const start = async (name: string) => {
     const config: RunConfig = { name, concurrency, category, promptCount }
@@ -29,12 +29,14 @@ export function useRun(_socket: Socket | null) {
 
   const stop = async () => {
     if (!runId) return
+    // Don't reset here — the backend halts the pipeline, aggregates the partial
+    // results, and emits run:complete. Resetting would discard that summary. The
+    // incoming phase:change ('stopped'/'complete') + run:complete drive the UI.
     await fetch('/api/run/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ runId }),
     })
-    reset()
   }
 
   return {
