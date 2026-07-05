@@ -42,6 +42,16 @@ function StatCard({ label, value, sub, sparkData, color }: StatCardProps) {
   )
 }
 
+// KV_CACHE_API_CONTRACT.md §2: used_gb/total_gb are independently nullable
+// (e.g. vLLM's /metrics scrape can be transiently unreachable while the
+// capacity log line is still known) — only show the GB breakdown when both
+// are present, otherwise fall back to no sub-label rather than a stray dash.
+function kvCacheSub(latest: MetricsSnapshot | null | undefined): string | undefined {
+  const kv = latest?.kv_cache
+  if (kv?.used_gb == null || kv?.total_gb == null) return undefined
+  return `${kv.used_gb.toFixed(2)} of ${kv.total_gb.toFixed(2)} GB`
+}
+
 interface StatCardsProps {
   /** Optional historical snapshots; when omitted the live metrics store is used. */
   snapshots?: MetricsSnapshot[]
@@ -81,7 +91,8 @@ export function StatCards({ snapshots: snapOverride, latest: latestOverride }: S
       />
       <StatCard
         label="KV Cache"
-        value={latest ? fmtPct(latest.kv_cache_pct) : '—'}
+        value={latest ? fmtPct(latest.kv_cache?.usage_percent ?? latest.kv_cache_pct) : '—'}
+        sub={kvCacheSub(latest)}
         color="#D97706"
         sparkData={kvData.slice(-20)}
       />

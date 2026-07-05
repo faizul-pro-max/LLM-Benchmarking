@@ -104,6 +104,7 @@ export function runMigrations() {
   migrateMetricSnapshotsChatSession()
   migrateMetricSnapshotsVllmRaw()
   migrateRunsDescription()
+  migrateMetricSnapshotsKvCache()
 }
 
 // Idempotent migration: persist a rich-text (HTML) description attached to a run
@@ -132,6 +133,34 @@ function migrateMetricSnapshotsVllmRaw(): void {
   } catch (err) {
     // Column may already exist on a racing/older DB — ignore duplicate errors.
     console.log({ msg: 'metric_snapshots vllm_raw add skipped', err: String(err), ts: Date.now() })
+  }
+}
+
+// Idempotent migration: capacity-aware KV cache reading from the observer
+// agent's GET /kv_cache (see KV_CACHE_API_CONTRACT.md §2). Older DBs lack these
+// columns; add each with a guarded ALTER. Values are nullable — the agent can
+// return null for any of them (vLLM still starting, unrecognised log format).
+function migrateMetricSnapshotsKvCache(): void {
+  type ColInfo = { name: string }
+  const cols = db.prepare(`PRAGMA table_info(metric_snapshots)`).all() as ColInfo[]
+  const existing = new Set(cols.map((c) => c.name))
+  const kvColumns: Record<string, string> = {
+    kv_total_tokens: 'INTEGER',
+    kv_block_size: 'INTEGER',
+    kv_total_gb: 'REAL',
+    kv_used_tokens: 'INTEGER',
+    kv_free_tokens: 'INTEGER',
+    kv_used_gb: 'REAL',
+    kv_free_gb: 'REAL',
+  }
+  for (const [name, type] of Object.entries(kvColumns)) {
+    if (existing.has(name)) continue
+    try {
+      db.exec(`ALTER TABLE metric_snapshots ADD COLUMN ${name} ${type}`)
+    } catch (err) {
+      // Column may already exist on a racing/older DB — ignore duplicate errors.
+      console.log({ msg: `metric_snapshots ${name} add skipped`, err: String(err), ts: Date.now() })
+    }
   }
 }
 

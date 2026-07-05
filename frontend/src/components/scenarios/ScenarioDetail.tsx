@@ -1,8 +1,9 @@
-import type { Scenario } from '@/types/scenario'
+import type { Scenario, CurrentStatus } from '@/types/scenario'
 import { OverridesForm } from './OverridesForm'
 
 interface ScenarioDetailProps {
   scenario: Scenario
+  activeStatus: CurrentStatus | null
   overrides: Record<string, unknown>
   onSet: (field: string, value: unknown) => void
   onReset: () => void
@@ -10,15 +11,20 @@ interface ScenarioDetailProps {
 }
 
 /** Detail view for the selected scenario: launch/config summary + the tunable
- *  overrides form. */
+ *  overrides form. Shows both what's actively running and the scenario default. */
 export function ScenarioDetail({
   scenario,
+  activeStatus,
   overrides,
   onSet,
   onReset,
   disabled,
 }: ScenarioDetailProps) {
   const configEntries = scenario.config ? Object.entries(scenario.config) : []
+  const activeConfigEntries =
+    activeStatus && 'config' in activeStatus && activeStatus.config
+      ? Object.entries(activeStatus.config)
+      : []
 
   return (
     <div className="flex flex-col gap-3">
@@ -57,17 +63,17 @@ export function ScenarioDetail({
         </div>
       )}
 
-      {/* Config summary */}
-      {configEntries.length > 0 && (
+      {/* Active config (what's actually running) */}
+      {activeConfigEntries.length > 0 && (
         <div>
-          <h4 className="text-[10px] uppercase tracking-wider text-muted mb-1">
-            Config
+          <h4 className="text-[10px] uppercase tracking-wider text-green-accent font-semibold mb-1">
+            ✓ Active config (running now)
           </h4>
           <div className="grid grid-cols-2 gap-1">
-            {configEntries.map(([k, v]) => (
+            {activeConfigEntries.map(([k, v]) => (
               <div
                 key={k}
-                className="flex items-center justify-between gap-2 rounded border border-border bg-card px-2 py-1"
+                className="flex items-center justify-between gap-2 rounded border border-green-accent/30 bg-green-accent/10 px-2 py-1"
               >
                 <span className="text-[10px] text-muted font-mono truncate">{k}</span>
                 <span className="text-[10px] text-fg font-mono truncate">
@@ -75,6 +81,43 @@ export function ScenarioDetail({
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Scenario's declared config */}
+      {configEntries.length > 0 && (
+        <div>
+          <h4 className="text-[10px] uppercase tracking-wider text-muted mb-1">
+            {activeConfigEntries.length > 0 ? 'Scenario default config' : 'Config'}
+          </h4>
+          <div className="grid grid-cols-2 gap-1">
+            {configEntries.map(([k, v]) => {
+              const activeVal = activeConfigEntries.find(([ak]) => ak === k)?.[1]
+              const isDifferent = activeVal !== v && activeConfigEntries.length > 0
+              return (
+                <div
+                  key={k}
+                  className={`flex items-center justify-between gap-2 rounded border px-2 py-1 ${
+                    isDifferent
+                      ? 'border-amber-accent/30 bg-amber-accent/10'
+                      : 'border-border bg-card'
+                  }`}
+                >
+                  <span className="text-[10px] text-muted font-mono truncate">{k}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-fg font-mono truncate">
+                      {v == null ? '—' : String(v)}
+                    </span>
+                    {isDifferent && (
+                      <span className="text-[9px] text-amber-accent font-semibold shrink-0">
+                        (active: {activeVal == null ? '—' : String(activeVal)})
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

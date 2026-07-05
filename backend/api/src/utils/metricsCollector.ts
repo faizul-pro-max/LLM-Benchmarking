@@ -1,7 +1,7 @@
 import { Server } from 'socket.io'
 import { parseVllmMetrics } from './prometheusParser'
 import { insertSnapshot, insertChatSnapshot } from '../db/queries/snapshots'
-import type { MetricsSnapshot } from '../types/metrics'
+import type { MetricsSnapshot, KvCacheUsage } from '../types/metrics'
 import type { ServerToClientEvents, ClientToServerEvents } from '../types/socket'
 
 const GPU_AGENT_URL     = process.env.GPU_AGENT_URL     ?? ''
@@ -49,6 +49,44 @@ function mockSnapshot(): MetricsSnapshot {
     tokens_per_sec: 0,
     ttft_p50_ms: 0,
     ttft_p99_ms: 0,
+    kv_cache: {
+      total_tokens: 434176,
+      block_size: 16,
+      total_gb: 43.86,
+      usage_percent: 0,
+      used_tokens: 0,
+      free_tokens: 434176,
+      used_gb: 0,
+      free_gb: 43.86,
+    },
+  }
+}
+
+const nullKvCache: KvCacheUsage = {
+  total_tokens: null,
+  block_size: null,
+  total_gb: null,
+  usage_percent: null,
+  used_tokens: null,
+  free_tokens: null,
+  used_gb: null,
+  free_gb: null,
+}
+
+// Parses the observer agent's GET /kv_cache body — every field is independently
+// nullable per KV_CACHE_API_CONTRACT.md §2, so pass through `null` rather than
+// coercing to 0 (a real 0% usage must stay distinguishable from "unknown").
+function parseKvCache(raw: Record<string, unknown>): KvCacheUsage {
+  const num = (v: unknown): number | null => (typeof v === 'number' ? v : null)
+  return {
+    total_tokens: num(raw.total_tokens),
+    block_size: num(raw.block_size),
+    total_gb: num(raw.total_gb),
+    usage_percent: num(raw.usage_percent),
+    used_tokens: num(raw.used_tokens),
+    free_tokens: num(raw.free_tokens),
+    used_gb: num(raw.used_gb),
+    free_gb: num(raw.free_gb),
   }
 }
 
@@ -71,9 +109,10 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
   if (!GPU_AGENT_URL) return mockSnapshot()
 
   const t0 = Date.now()
-  const [gpuRes, vllmRes] = await Promise.allSettled([
+  const [gpuRes, vllmRes, kvCacheRes] = await Promise.allSettled([
     fetchWithTimeout(`${GPU_AGENT_URL}/gpu`, 2000, agentHeaders),
     fetchWithTimeout(`${VLLM_URL}/metrics`),
+    fetchWithTimeout(`${GPU_AGENT_URL}/kv_cache`, 2000, agentHeaders),
   ])
 
   let gpuData: Partial<MetricsSnapshot> = {}
@@ -81,6 +120,12 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
     kv_cache_pct: 0, requests_running: 0, requests_waiting: 0,
     requests_swapped: 0, tokens_per_sec: 0, generation_tokens_total: 0,
     ttft_p50_ms: 0, ttft_p99_ms: 0, vllm: '',
+  }
+  let kvCache: KvCacheUsage = nullKvCache
+
+  if (kvCacheRes.status === 'fulfilled' && kvCacheRes.value.ok) {
+    const raw = await (kvCacheRes.value as unknown as { json(): Promise<unknown> }).json() as Record<string, unknown>
+    kvCache = parseKvCache(raw)
   }
 
   if (gpuRes.status === 'fulfilled' && gpuRes.value.ok) {
@@ -98,7 +143,8 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
     }
   }
 
-  if (vllmRes.status === 'fulfilled' && vllmRes.value.ok) {
+  const vllmReachable = vllmRes.status === 'fulfilled' && vllmRes.value.ok
+  if (vllmReachable) {
     const text = await (vllmRes.value as unknown as { text(): Promise<string> }).text()
     vllmData = parseVllmMetrics(text)
   }
@@ -112,6 +158,29 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
   //     read 0. Hold the last non-zero rate for TPS_HOLD_MS so the chart doesn't
   //     flap to zero mid-decode, then decay cleanly to 0 once truly idle.
   const { generation_tokens_total, vllm: vllmRaw, ...vllmRest } = vllmData
+
+  // The agent's own /kv_cache usage_percent (and the used_*/free_* fields derived
+  // from it) has been observed to be unreliable — recompute them from our own
+  // vLLM scrape's kv_cache_pct instead, which is already correctly scaled 0-100
+  // (see prometheusParser.parseVllmMetrics). Only total_tokens/block_size/total_gb
+  // stay agent-sourced — those come from vLLM's startup logs, which we have no
+  // other way to read.
+  if (vllmReachable) {
+    const usagePct = vllmRest.kv_cache_pct
+    const usedTokens = kvCache.total_tokens != null ? Math.floor(kvCache.total_tokens * usagePct / 100) : null
+    const usedGb = kvCache.total_gb != null ? Math.round(kvCache.total_gb * usagePct / 100 * 100) / 100 : null
+    kvCache = {
+      ...kvCache,
+      usage_percent: usagePct,
+      used_tokens: usedTokens,
+      free_tokens: kvCache.total_tokens != null && usedTokens != null ? kvCache.total_tokens - usedTokens : null,
+      used_gb: usedGb,
+      free_gb: kvCache.total_gb != null && usedGb != null ? Math.round((kvCache.total_gb - usedGb) * 100) / 100 : null,
+    }
+  } else {
+    kvCache = { ...kvCache, usage_percent: null, used_tokens: null, free_tokens: null, used_gb: null, free_gb: null }
+  }
+
   const now = Date.now()
   let tokens_per_sec = 0
   if (prevGenTokens !== null && prevGenTs > 0) {
@@ -147,6 +216,7 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
     ...vllmRest,
     tokens_per_sec: Math.round(tokens_per_sec),
     vllm_raw: vllmRaw,
+    kv_cache: kvCache,
   }
 }
 

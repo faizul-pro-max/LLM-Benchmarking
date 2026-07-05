@@ -258,6 +258,7 @@ export function ScenarioPanel({ open, onClose }: ScenarioPanelProps) {
                   {selectedObj ? (
                     <ScenarioDetail
                       scenario={selectedObj}
+                      activeStatus={liveStatus}
                       overrides={overrides}
                       onSet={setOverride}
                       onReset={resetOverrides}

@@ -11,21 +11,36 @@ export interface SocketState {
   socket: Socket | null
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
 // Persisted request rows are written the instant each request finishes (see
 // loadGenerator.ts insertRequest), so they're always authoritative — used to
 // patch any card whose live socket update was silently dropped (e.g. a
 // disconnect/reconnect with no event replay left it stuck on a stale state
 // like "decoding" even though the backend genuinely finished it).
+//
+// Called from only two triggers (socket 'connect' and the run's terminal
+// phase:change) — once the run reaches complete/stopped/error, no further
+// events will ever be emitted for it, so this is the last chance to patch a
+// stuck card. The reconnect that leads here often happens on the same flaky
+// network path that caused the disconnect in the first place, so a bare
+// single-shot fetch can itself transiently fail right when it matters most.
+// Retry a few times with backoff instead of silently burning that one shot.
 async function reconcileRun(runId: string): Promise<void> {
-  try {
-    const res = await fetch(`/api/results/${runId}/requests`)
-    if (!res.ok) return
-    const rows = await res.json()
-    if (Array.isArray(rows)) {
-      useRunStore.getState().reconcileFromPersisted(rows)
+  const delays = [0, 300, 1000, 2500]
+  for (const delay of delays) {
+    if (delay) await sleep(delay)
+    try {
+      const res = await fetch(`/api/results/${runId}/requests`)
+      if (!res.ok) continue
+      const rows = await res.json()
+      if (Array.isArray(rows)) {
+        useRunStore.getState().reconcileFromPersisted(rows)
+      }
+      return
+    } catch {
+      // Transient — fall through to the next retry.
     }
-  } catch {
-    // Best-effort — a failed reconciliation fetch shouldn't affect anything else.
   }
 }
 

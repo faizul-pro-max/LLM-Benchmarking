@@ -102,9 +102,19 @@ export const useRunStore = create<RunStore>((set) => ({
   addWarmupTtft: (point) =>
     set((state) => ({ warmupTtfts: [...state.warmupTtfts, point] })),
 
-  setPhase: (phase) => set({ phase }),
+  setPhase: (phase) =>
+    set(
+      phase === 'complete' || phase === 'stopped' || phase === 'error'
+        // Terminal phase — the load-generator loop that was emitting
+        // scheduler:update is gone, so nothing will ever tell the UI the
+        // queue drained. Zero it out here instead of waiting for a final
+        // event that may never come.
+        ? { phase, schedulerRunning: 0, schedulerWaiting: 0 }
+        : { phase }
+    ),
 
-  completeRun: (summary) => set({ phase: 'complete', summary }),
+  completeRun: (summary) =>
+    set({ phase: 'complete', summary, schedulerRunning: 0, schedulerWaiting: 0 }),
 
   reset: () =>
     set({
