@@ -18,6 +18,8 @@ interface HeaderProps {
   onContinueChat?: () => void
   benchmarksActive?: boolean
   onBenchmarksClick?: () => void
+  scenariosActive?: boolean
+  onScenariosClick?: () => void
 }
 
 export function Header({
@@ -33,6 +35,8 @@ export function Header({
   onContinueChat,
   benchmarksActive,
   onBenchmarksClick,
+  scenariosActive,
+  onScenariosClick,
 }: HeaderProps) {
   const theme = useThemeStore((s) => s.theme)
   const toggleTheme = useThemeStore((s) => s.toggle)
@@ -122,6 +126,29 @@ export function Header({
             <rect x="17" y="13" width="3" height="4" />
           </svg>
           Benchmarks
+        </button>
+        <button
+          onClick={onScenariosClick}
+          title="Switch inference scenarios on the GPU box"
+          className={clsx(
+            'flex items-center gap-1.5 px-2.5 py-1 rounded border transition-colors font-medium',
+            scenariosActive
+              ? 'bg-violet-500 text-white border-violet-500 hover:bg-violet-600'
+              : 'bg-violet-500/15 border-violet-500/40 text-violet-500 hover:bg-violet-500/25'
+          )}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="4" y1="21" x2="4" y2="14" />
+            <line x1="4" y1="10" x2="4" y2="3" />
+            <line x1="12" y1="21" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12" y2="3" />
+            <line x1="20" y1="21" x2="20" y2="16" />
+            <line x1="20" y1="12" x2="20" y2="3" />
+            <line x1="1" y1="14" x2="7" y2="14" />
+            <line x1="9" y1="8" x2="15" y2="8" />
+            <line x1="17" y1="16" x2="23" y2="16" />
+          </svg>
+          Scenarios
         </button>
         {/* Split chat control: main button toggles chat; caret opens New/Continue */}
         <div ref={chatMenuRef} className="relative flex items-center">

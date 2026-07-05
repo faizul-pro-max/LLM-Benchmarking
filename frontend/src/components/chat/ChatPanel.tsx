@@ -13,10 +13,14 @@ interface ChatPanelProps {
   category: 'random' | 'shared_prefix' | 'exact_repeat'
   promptSource: 'sheets' | 'local'
   promptsByCategory: Record<string, number>
+  promptCount: number
+  description: string
   requests: Map<string, RequestResult>
   onStart: () => void
   onStop: () => void
   onConcurrencyChange: (v: number) => void
+  onPromptCountChange: (n: number) => void
+  onDescriptionChange: (html: string) => void
   onCategoryChange: (c: 'random' | 'shared_prefix' | 'exact_repeat') => void
 }
 
@@ -26,10 +30,14 @@ export function ChatPanel({
   category,
   promptSource,
   promptsByCategory,
+  promptCount,
+  description,
   requests,
   onStart,
   onStop,
   onConcurrencyChange,
+  onPromptCountChange,
+  onDescriptionChange,
   onCategoryChange,
 }: ChatPanelProps) {
   const reqArray = useMemo(() => Array.from(requests.values()), [requests])
@@ -57,6 +65,10 @@ export function ChatPanel({
         phase={phase}
         concurrency={concurrency}
         onConcurrencyChange={onConcurrencyChange}
+        promptCount={promptCount}
+        onPromptCountChange={onPromptCountChange}
+        description={description}
+        onDescriptionChange={onDescriptionChange}
         onStart={onStart}
         onStop={onStop}
       />

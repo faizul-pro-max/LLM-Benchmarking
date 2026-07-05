@@ -1,15 +1,5 @@
-import { useMetrics } from '@/hooks/useMetrics'
-import { fmtMs } from '@/utils/formatters'
+import { useRunStore } from '@/store/runStore'
 import type { MetricsSnapshot } from '@/types/metrics'
-
-// Bar-scaling constants. These are *display* assumptions used only to size the
-// progress bars — they are NOT real scheduler limits. They roughly approximate
-// vLLM scheduler bounds (e.g. --max-num-seqs) so the bars look meaningful, but
-// ideally they should be derived from the actual server config rather than
-// hardcoded here.
-const MAX_RUNNING = 16   // approx vLLM max concurrently-running sequences (max-num-seqs)
-const MAX_WAITING = 32   // approx upper bound for the waiting queue length
-const MAX_TTFT_MS = 1000 // approx TTFT P50 ceiling (ms) used only for bar scaling
 
 interface BarRowProps {
   label: string
@@ -36,18 +26,25 @@ function BarRow({ label, value, max, display, color }: BarRowProps) {
 }
 
 interface QueueBarsProps {
-  /** Optional historical latest snapshot; when omitted the live store is used. */
+  /** Optional historical snapshot, passed by BenchmarksView when rendering a
+   *  past (already-finished) run loaded from SQLite. That view has no live
+   *  scheduler running/waiting data — the run's load-generator loop is long
+   *  gone — so when this prop is present we just show static placeholders
+   *  instead of live scheduler:update-derived bars. */
   latest?: MetricsSnapshot | null
 }
 
-export function QueueBars({ latest: latestOverride }: QueueBarsProps = {}) {
-  const live = useMetrics()
-  const latest = latestOverride !== undefined ? latestOverride : live.latest
+export function QueueBars({ latest: historicalOverride }: QueueBarsProps = {}) {
+  const isHistorical = historicalOverride !== undefined
+  const concurrency = useRunStore((s) => s.concurrency)
+  const promptCount = useRunStore((s) => s.promptCount)
+  const schedulerRunning = useRunStore((s) => s.schedulerRunning)
+  const schedulerWaiting = useRunStore((s) => s.schedulerWaiting)
 
-  const running = latest?.requests_running ?? 0
-  const waiting = latest?.requests_waiting ?? 0
-  const kv      = latest?.kv_cache_pct ?? 0
-  const ttft    = latest?.ttft_p50_ms ?? 0
+  const running = isHistorical ? null : schedulerRunning
+  const waiting = isHistorical ? null : schedulerWaiting
+  const maxRunning = Math.max(concurrency, 1)
+  const maxWaiting = Math.max(promptCount - concurrency, 1)
 
   return (
     <div className="px-4 py-3 border-t border-border">
@@ -55,31 +52,17 @@ export function QueueBars({ latest: latestOverride }: QueueBarsProps = {}) {
       <div className="flex flex-col gap-2">
         <BarRow
           label="Requests Running"
-          value={running}
-          max={MAX_RUNNING}
-          display={`${running} / ${MAX_RUNNING}`}
+          value={running ?? 0}
+          max={maxRunning}
+          display={running === null ? '—' : `${running} / ${maxRunning}`}
           color="#2563EB"
         />
         <BarRow
           label="Requests Waiting"
-          value={waiting}
-          max={MAX_WAITING}
-          display={String(waiting)}
+          value={waiting ?? 0}
+          max={maxWaiting}
+          display={waiting === null ? '—' : String(waiting)}
           color="#D97706"
-        />
-        <BarRow
-          label="KV Cache %"
-          value={kv}
-          max={100}
-          display={`${Math.round(kv)}%`}
-          color="#059669"
-        />
-        <BarRow
-          label="TTFT P50"
-          value={ttft}
-          max={MAX_TTFT_MS}
-          display={fmtMs(ttft)}
-          color="#8B5CF6"
         />
       </div>
     </div>

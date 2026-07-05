@@ -10,11 +10,14 @@ export function useRun(_socket: Socket | null) {
   const concurrency = useRunStore((s) => s.concurrency)
   const category = useRunStore((s) => s.category)
   const promptCount = useRunStore((s) => s.promptCount)
+  const description = useRunStore((s) => s.description)
   const summary = useRunStore((s) => s.summary)
-  const { startRun, setConcurrency, setCategory, setPromptCount } = useRunStore.getState()
+  const { startRun, setConcurrency, setCategory, setPromptCount, setDescription } =
+    useRunStore.getState()
 
   const start = async (name: string) => {
-    const config: RunConfig = { name, concurrency, category, promptCount }
+    const { description } = useRunStore.getState()
+    const config: RunConfig = { name, concurrency, category, promptCount, description }
     // Backend has no run:start socket listener — the pipeline is a REST route.
     // Start via REST, then the socket streams phase/metrics/request updates.
     const res = await fetch('/api/run/start', {
@@ -32,6 +35,10 @@ export function useRun(_socket: Socket | null) {
     // Don't reset here — the backend halts the pipeline, aggregates the partial
     // results, and emits run:complete. Resetting would discard that summary. The
     // incoming phase:change ('stopped'/'complete') + run:complete drive the UI.
+    // Optimistically flip to 'stopping' so the UI reacts instantly on click —
+    // the real phase:change event overwrites this once the backend actually
+    // drains the pipeline.
+    useRunStore.getState().setPhase('stopping')
     await fetch('/api/run/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -47,11 +54,13 @@ export function useRun(_socket: Socket | null) {
     concurrency,
     category,
     promptCount,
+    description,
     summary,
     start,
     stop,
     setConcurrency,
     setCategory,
     setPromptCount,
+    setDescription,
   }
 }

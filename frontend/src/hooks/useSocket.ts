@@ -2,13 +2,31 @@ import { useEffect, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { useMetricsStore } from '@/store/metricsStore'
 import { useRunStore } from '@/store/runStore'
-import type { MetricsSnapshot, RequestUpdate } from '@/types/metrics'
+import type { MetricsSnapshot, RequestUpdate, SchedulerUpdate } from '@/types/metrics'
 import type { AggregatedResult, WarmupTtft } from '@/types/experiment'
 
 export interface SocketState {
   connected: boolean
   rtt: number | null
   socket: Socket | null
+}
+
+// Persisted request rows are written the instant each request finishes (see
+// loadGenerator.ts insertRequest), so they're always authoritative — used to
+// patch any card whose live socket update was silently dropped (e.g. a
+// disconnect/reconnect with no event replay left it stuck on a stale state
+// like "decoding" even though the backend genuinely finished it).
+async function reconcileRun(runId: string): Promise<void> {
+  try {
+    const res = await fetch(`/api/results/${runId}/requests`)
+    if (!res.ok) return
+    const rows = await res.json()
+    if (Array.isArray(rows)) {
+      useRunStore.getState().reconcileFromPersisted(rows)
+    }
+  } catch {
+    // Best-effort — a failed reconciliation fetch shouldn't affect anything else.
+  }
 }
 
 export function useSocket(): SocketState {
@@ -25,9 +43,17 @@ export function useSocket(): SocketState {
     socketRef.current = socket
 
     const { addSnapshot } = useMetricsStore.getState()
-    const { updateRequest, addWarmupTtft, setPhase, completeRun } = useRunStore.getState()
+    const { updateRequest, addWarmupTtft, setPhase, completeRun, setSchedulerUpdate } =
+      useRunStore.getState()
 
-    socket.on('connect', () => setConnected(true))
+    socket.on('connect', () => {
+      setConnected(true)
+      // Fires on the initial connect (no-op, store is empty) AND on every
+      // reconnect (where it matters) — catches up on anything the dropped
+      // connection missed for the run currently in view.
+      const { runId } = useRunStore.getState()
+      if (runId) void reconcileRun(runId)
+    })
     socket.on('disconnect', () => setConnected(false))
 
     // Note: do NOT derive rtt here. `Date.now() - data.ts` is clock-offset plus
@@ -44,8 +70,18 @@ export function useSocket(): SocketState {
       addWarmupTtft(data)
     })
 
-    socket.on('phase:change', ({ phase }: { phase: string; runId: string }) => {
+    socket.on('scheduler:update', (data: SchedulerUpdate) => {
+      setSchedulerUpdate(data)
+    })
+
+    socket.on('phase:change', ({ phase, runId }: { phase: string; runId: string }) => {
       setPhase(phase as Parameters<typeof setPhase>[0])
+      // Final safety net: whatever caused a card to miss its live update, the
+      // run reaching a terminal phase is the last guaranteed chance to patch
+      // it from the authoritative persisted rows before the pipeline goes away.
+      if (phase === 'complete' || phase === 'stopped' || phase === 'error') {
+        void reconcileRun(runId)
+      }
     })
 
     socket.on('run:complete', ({ summary }: { runId: string; summary: AggregatedResult }) => {

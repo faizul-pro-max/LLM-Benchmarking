@@ -1,26 +1,39 @@
 import { useEffect } from 'react'
 import clsx from 'clsx'
-import type { RequestResult } from '@/types/metrics'
 import { fmtMs } from '@/utils/formatters'
 
-interface RequestDetailModalProps {
-  req: RequestResult
-  index: number
-  onClose: () => void
+/** A persisted request row as returned by GET /api/results/:runId/requests.
+ *  Mirrors the `requests` SQLite table — timings only, no streamed output text. */
+export interface PersistedRequest {
+  id: string
+  run_id: string
+  run_number: number
+  prompt_id: string
+  category: 'random' | 'shared_prefix' | 'exact_repeat'
+  phase: 'warmup' | 'benchmark'
+  prompt_text: string
+  t0: number | null
+  t1: number | null
+  t2: number | null
+  t3: number | null
+  ttft_ms: number | null
+  prefill_ms: number | null
+  decode_ms: number | null
+  total_ms: number | null
+  token_count: number | null
+  tpot_ms: number | null
+  finish_reason: string | null
+  error: string | null
 }
 
-const STATE_BADGE: Record<RequestResult['state'], string> = {
-  queued:     'bg-muted/20 text-muted',
-  prefilling: 'bg-amber-accent/20 text-amber-accent',
-  decoding:   'bg-blue-accent/20 text-blue-accent',
-  done:       'bg-green-accent/15 text-green-accent',
-  error:      'bg-red-accent/20 text-red-accent',
-}
-
-const CATEGORY_LABELS: Record<RequestResult['category'], string> = {
-  random:        'random',
+const CATEGORY_LABELS: Record<string, string> = {
+  random: 'random',
   shared_prefix: 'shared prefix',
-  exact_repeat:  'exact repeat',
+  exact_repeat: 'exact repeat',
+}
+
+export function categoryLabel(cat: string): string {
+  return CATEGORY_LABELS[cat] ?? cat
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -32,7 +45,13 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function RequestDetailModal({ req, index, onClose }: RequestDetailModalProps) {
+interface RequestResultModalProps {
+  req: PersistedRequest
+  index: number
+  onClose: () => void
+}
+
+export function RequestResultModal({ req, index, onClose }: RequestResultModalProps) {
   // Close on Escape
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -59,21 +78,28 @@ export function RequestDetailModal({ req, index, onClose }: RequestDetailModalPr
       >
         {/* Header */}
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border shrink-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="font-mono text-sm text-fg">
-              Req #{String(req.seq ?? index + 1).padStart(3, '0')}
+              Req #{String(index + 1).padStart(3, '0')}
             </span>
             <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase bg-card border border-border text-muted">
-              {CATEGORY_LABELS[req.category]}
+              {categoryLabel(req.category)}
             </span>
             <span
               className={clsx(
                 'px-1.5 py-0.5 rounded text-[9px] font-semibold capitalize',
-                STATE_BADGE[req.state]
+                req.phase === 'warmup'
+                  ? 'bg-amber-accent/20 text-amber-accent'
+                  : 'bg-blue-accent/20 text-blue-accent'
               )}
             >
-              {req.state}
+              {req.phase}
             </span>
+            {req.error && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-red-accent/20 text-red-accent">
+                error
+              </span>
+            )}
           </div>
           <button
             type="button"
@@ -99,14 +125,12 @@ export function RequestDetailModal({ req, index, onClose }: RequestDetailModalPr
 
           {/* Metrics grid */}
           <section>
-            <h3 className="text-[10px] uppercase tracking-wider text-muted mb-1.5">
-              Metrics
-            </h3>
+            <h3 className="text-[10px] uppercase tracking-wider text-muted mb-1.5">Metrics</h3>
             <div className="grid grid-cols-3 gap-2">
-              <Metric label="TTFT" value={fmtMs(req.ttft_ms)} />
-              <Metric label="Prefill" value={fmtMs(req.prefill_ms)} />
-              <Metric label="Decode" value={fmtMs(req.decode_ms)} />
-              <Metric label="Total" value={fmtMs(req.total_ms)} />
+              <Metric label="TTFT" value={fmtMs(req.ttft_ms ?? undefined)} />
+              <Metric label="Prefill" value={fmtMs(req.prefill_ms ?? undefined)} />
+              <Metric label="Decode" value={fmtMs(req.decode_ms ?? undefined)} />
+              <Metric label="Total" value={fmtMs(req.total_ms ?? undefined)} />
               <Metric
                 label="Tokens"
                 value={req.token_count != null ? String(req.token_count) : '—'}
@@ -121,21 +145,15 @@ export function RequestDetailModal({ req, index, onClose }: RequestDetailModalPr
             </div>
           </section>
 
-          {/* LLM output */}
-          <section>
-            <h3 className="text-[10px] uppercase tracking-wider text-muted mb-1">
-              LLM Response
-            </h3>
-            {req.error ? (
+          {/* Error, if any — no streamed response text is persisted for benchmark runs */}
+          {req.error && (
+            <section>
+              <h3 className="text-[10px] uppercase tracking-wider text-muted mb-1">Error</h3>
               <p className="text-xs text-red-accent whitespace-pre-wrap rounded border border-red-accent/40 bg-red-accent/10 p-2.5">
                 {req.error}
               </p>
-            ) : (
-              <p className="text-xs text-fg/90 font-mono leading-relaxed whitespace-pre-wrap rounded border border-border bg-card p-2.5 min-h-[3rem]">
-                {req.tokens_text || (req.state === 'done' ? '(empty response)' : 'Waiting for output…')}
-              </p>
-            )}
-          </section>
+            </section>
+          )}
         </div>
       </div>
     </div>

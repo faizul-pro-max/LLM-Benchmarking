@@ -13,6 +13,7 @@ import resultsRouter from './routes/results'
 import experimentsRouter from './routes/experiments'
 import promptsRouter from './routes/prompts'
 import chatRouter from './routes/chat'
+import controllerRouter from './routes/controller'
 import { startMetricsLoop, setChatSession } from './utils/metricsCollector'
 import type { ServerToClientEvents, ClientToServerEvents } from './types/socket'
 
@@ -39,6 +40,7 @@ app.use('/results', resultsRouter)
 app.use('/experiments', experimentsRouter)
 app.use('/prompts', promptsRouter)
 app.use('/chat', chatRouter)
+app.use('/controller', controllerRouter)
 app.use(errorHandler)
 
 io.on('connection', (socket) => {

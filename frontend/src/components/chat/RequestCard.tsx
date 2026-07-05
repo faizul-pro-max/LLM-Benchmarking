@@ -39,7 +39,7 @@ export function RequestCard({ req, index, onClick }: RequestCardProps) {
     >
       {/* Header row */}
       <div className="flex items-center justify-between gap-1">
-        <span className="font-mono text-muted">Req #{String(index + 1).padStart(3, '0')}</span>
+        <span className="font-mono text-muted">Req #{String(req.seq ?? index + 1).padStart(3, '0')}</span>
         <div className="flex items-center gap-1">
           <span className={clsx('px-1 py-0.5 rounded text-[9px] font-semibold uppercase', 'bg-card border border-border text-muted')}>
             {CATEGORY_LABELS[req.category]}

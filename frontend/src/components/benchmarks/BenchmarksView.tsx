@@ -6,7 +6,15 @@ import { TpsChart } from '@/components/metrics/TpsChart'
 import { QueueBars } from '@/components/metrics/QueueBars'
 import { fmtMs, fmtTps, fmtPct } from '@/utils/formatters'
 import type { MetricsSnapshot } from '@/types/metrics'
-import type { Run, AggregatedResult } from '@/types/experiment'
+import type { Run, AggregatedResult, RunConfig, RunPhase } from '@/types/experiment'
+import {
+  parseRunConfig,
+  RunConfigPanel,
+  ServerConfigPanel,
+  DescriptionPanel,
+} from './RunConfigPanels'
+import { RequestsTable } from './RequestsTable'
+import type { PersistedRequest } from './RequestResultModal'
 
 /** A past run as returned by GET /api/experiments — may carry headline metrics. */
 interface ExperimentRow extends Run {
@@ -22,6 +30,37 @@ function fmtDate(ms: number): string {
   } catch {
     return '—'
   }
+}
+
+function StatusBadge({ phase }: { phase: RunPhase }) {
+  const config = (() => {
+    switch (phase) {
+      case 'complete':
+        return { label: 'Complete', bgClass: 'bg-green-500/15', textClass: 'text-green-600' }
+      case 'stopped':
+        return { label: 'Stopped', bgClass: 'bg-amber-500/15', textClass: 'text-amber-600' }
+      case 'error':
+        return { label: 'Error', bgClass: 'bg-red-500/15', textClass: 'text-red-600' }
+      case 'warmup':
+      case 'benchmarking':
+      case 'pending':
+        return { label: 'Running', bgClass: 'bg-blue-500/15', textClass: 'text-blue-600' }
+      default:
+        return { label: phase, bgClass: 'bg-slate-500/15', textClass: 'text-slate-600' }
+    }
+  })()
+
+  return (
+    <span
+      className={clsx(
+        'inline-flex px-2 py-1 rounded-full text-[9px] font-semibold uppercase tracking-wider',
+        config.bgClass,
+        config.textClass
+      )}
+    >
+      {config.label}
+    </span>
+  )
 }
 
 function ExperimentListItem({
@@ -46,7 +85,10 @@ function ExperimentListItem({
       <div className={clsx('text-[13px] font-medium truncate', active ? 'text-blue-accent' : 'text-fg')}>
         {run.name}
       </div>
-      <div className="text-[10px] text-muted mt-0.5">{fmtDate(run.created_at)}</div>
+      <div className="flex items-center gap-2 mt-0.5">
+        <div className="text-[10px] text-muted flex-1">{fmtDate(run.created_at)}</div>
+        <StatusBadge phase={run.phase} />
+      </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10px] font-mono text-muted">
         {run.ttft_p50_ms != null && <span>TTFT {fmtMs(run.ttft_p50_ms)}</span>}
         {run.tokens_per_sec_avg != null && <span>{fmtTps(run.tokens_per_sec_avg)} tok/s</span>}
@@ -72,7 +114,9 @@ export function BenchmarksView() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [snapshots, setSnapshots] = useState<MetricsSnapshot[]>([])
   const [result, setResult] = useState<AggregatedResult | null>(null)
+  const [requests, setRequests] = useState<PersistedRequest[]>([])
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [loadingRequests, setLoadingRequests] = useState(false)
 
   // Load the experiment list on mount.
   useEffect(() => {
@@ -102,27 +146,36 @@ export function BenchmarksView() {
     if (!selectedId) {
       setSnapshots([])
       setResult(null)
+      setRequests([])
       return
     }
     let alive = true
     setLoadingDetail(true)
+    setLoadingRequests(true)
     ;(async () => {
       try {
-        const [snapRes, aggRes] = await Promise.all([
+        const [snapRes, aggRes, reqRes] = await Promise.all([
           fetch(`/api/results/${selectedId}/snapshots`),
           fetch(`/api/results/${selectedId}`),
+          fetch(`/api/results/${selectedId}/requests`),
         ])
         const snaps: MetricsSnapshot[] = snapRes.ok ? await snapRes.json() : []
         const agg: AggregatedResult | null = aggRes.ok ? await aggRes.json() : null
+        const reqs: PersistedRequest[] = reqRes.ok ? await reqRes.json() : []
         if (!alive) return
         setSnapshots(Array.isArray(snaps) ? snaps : [])
         setResult(agg)
+        setRequests(Array.isArray(reqs) ? reqs : [])
       } catch {
         if (!alive) return
         setSnapshots([])
         setResult(null)
+        setRequests([])
       } finally {
-        if (alive) setLoadingDetail(false)
+        if (alive) {
+          setLoadingDetail(false)
+          setLoadingRequests(false)
+        }
       }
     })()
     return () => {
@@ -131,6 +184,10 @@ export function BenchmarksView() {
   }, [selectedId])
 
   const latest = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null
+  const selectedRun = experiments.find((r) => r.id === selectedId) ?? null
+  const runConfig: RunConfig | null = selectedRun ? parseRunConfig(selectedRun.config) : null
+  // Prefer the row's top-level description; fall back to the parsed config's.
+  const descriptionHtml = selectedRun?.description ?? runConfig?.description ?? null
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -168,6 +225,14 @@ export function BenchmarksView() {
           </div>
         ) : (
           <>
+            {/* Run header with name and status */}
+            {selectedRun && (
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                <div className="text-sm font-semibold text-fg">{selectedRun.name}</div>
+                <StatusBadge phase={selectedRun.phase} />
+              </div>
+            )}
+
             <StatCards snapshots={snapshots} latest={latest} />
 
             <div className="grid grid-cols-2 gap-4 px-4 py-2">
@@ -201,6 +266,18 @@ export function BenchmarksView() {
                 <div className="text-xs text-muted">No aggregated results for this run.</div>
               )}
             </div>
+
+            {/* Description (task 3) */}
+            <DescriptionPanel html={descriptionHtml} />
+
+            {/* Run config (task 1.2) */}
+            <RunConfigPanel config={runConfig} />
+
+            {/* LLM server snapshot (task 1.1) */}
+            <ServerConfigPanel server={runConfig?.server} />
+
+            {/* Per-prompt request results (task 1.3) */}
+            <RequestsTable requests={requests} loading={loadingRequests} />
           </>
         )}
       </div>

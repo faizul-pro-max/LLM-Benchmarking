@@ -10,7 +10,6 @@ interface ExperimentStore {
   fetchExperiments: () => Promise<void>
   selectForComparison: (id: string) => void
   fetchComparison: () => Promise<void>
-  setMockExperiments: (rows: ComparisonRow[]) => void
 }
 
 export const useExperimentStore = create<ExperimentStore>((set, get) => ({
@@ -48,6 +47,4 @@ export const useExperimentStore = create<ExperimentStore>((set, get) => ({
       // backend not available
     }
   },
-
-  setMockExperiments: (rows) => set({ comparison: rows }),
 }))

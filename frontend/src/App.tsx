@@ -4,6 +4,7 @@ import { ChatPanel } from '@/components/chat/ChatPanel'
 import { MetricsPanel } from '@/components/metrics/MetricsPanel'
 import { ConversationPanel } from '@/components/conversation/ConversationPanel'
 import { BenchmarksView } from '@/components/benchmarks/BenchmarksView'
+import { ScenarioPanel } from '@/components/scenarios/ScenarioPanel'
 import { useSocket } from '@/hooks/useSocket'
 import { useRun } from '@/hooks/useRun'
 import { useHealth } from '@/hooks/useHealth'
@@ -11,7 +12,6 @@ import { usePrompts } from '@/hooks/usePrompts'
 import { useMetrics } from '@/hooks/useMetrics'
 import { newChatSession } from '@/hooks/useChatSession'
 import { useMetricsStore } from '@/store/metricsStore'
-import { startMockData } from '@/utils/mockData'
 
 /** Reads the current `?session=` chat id from the URL (or null). */
 function readSessionFromUrl(): string | null {
@@ -27,10 +27,14 @@ export default function App() {
     requests,
     concurrency,
     category,
+    promptCount,
+    description,
     start,
     stop,
     setConcurrency,
     setCategory,
+    setPromptCount,
+    setDescription,
   } = useRun(socket)
 
   const { vllmOk, model, experiment } = useHealth()
@@ -40,6 +44,9 @@ export default function App() {
   // exclusive tabs — switching one always leaves a well-defined view (no stale
   // left-panel state). 'benchmark' is the default landing view.
   const [view, setView] = useState<'benchmark' | 'chat' | 'benchmarks'>('benchmark')
+
+  // Scenario controller panel is a modal overlay, independent of the view tabs.
+  const [scenariosOpen, setScenariosOpen] = useState(false)
 
   // Active chat session id App drives down to ConversationPanel + metricsStore.
   const [chatSession, setChatSession] = useState<string | null>(null)
@@ -79,17 +86,6 @@ export default function App() {
     socket?.emit('chat:session', { sessionId: id })
   }, [view, chatSession, socket, setMetricsSession])
 
-  // Start mock data only when truly disconnected from the backend. When connected
-  // (even idle), live metrics:snapshot events drive every chart.
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (!connected) {
-        startMockData()
-      }
-    }, 1500)
-    return () => clearTimeout(timeout)
-  }, [connected])
-
   // Prefer the live experiment the GPU agent is serving; fall back to the
   // static label when no agent/experiment is connected.
   const experimentName = experiment?.name ?? EXPERIMENT_NAME
@@ -113,6 +109,8 @@ export default function App() {
         onContinueChat={continueChat}
         benchmarksActive={view === 'benchmarks'}
         onBenchmarksClick={() => setView((v) => (v === 'benchmarks' ? 'benchmark' : 'benchmarks'))}
+        scenariosActive={scenariosOpen}
+        onScenariosClick={() => setScenariosOpen(true)}
       />
 
       {view === 'benchmarks' ? (
@@ -135,10 +133,14 @@ export default function App() {
                 category={category}
                 promptSource={promptSource}
                 promptsByCategory={promptsByCategory}
+                promptCount={promptCount}
+                description={description}
                 requests={requests}
                 onStart={handleStart}
                 onStop={stop}
                 onConcurrencyChange={setConcurrency}
+                onPromptCountChange={setPromptCount}
+                onDescriptionChange={setDescription}
                 onCategoryChange={setCategory}
               />
             )}
@@ -150,6 +152,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <ScenarioPanel open={scenariosOpen} onClose={() => setScenariosOpen(false)} />
     </div>
   )
 }

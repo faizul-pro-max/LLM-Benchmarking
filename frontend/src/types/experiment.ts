@@ -1,16 +1,50 @@
-export type RunPhase = 'idle' | 'pending' | 'warmup' | 'benchmarking' | 'complete' | 'stopped' | 'error'
+export type RunPhase =
+  | 'idle'
+  | 'pending'
+  | 'warmup'
+  | 'benchmarking'
+  | 'stopping'
+  | 'complete'
+  | 'stopped'
+  | 'error'
+
+/** LLM server config snapshotted at run start (best-effort — fields may be null
+ *  when the vLLM / GPU agent was unreachable). Stored inside runs.config JSON as
+ *  `server`, so a past benchmark records exactly which server it ran against. */
+export interface ServerConfigSnapshot {
+  model_name?: string | null
+  vllm_url?: string | null
+  gpu_agent_url?: string | null
+  vllm_version?: string | null
+  served_model_id?: string | null
+  max_model_len?: number | null
+  gpu_name?: string | null
+  vram_total_mb?: number | null
+  runtime?: {
+    enable_prefix_caching?: boolean | null
+    gpu_memory_utilization?: number | null
+    block_size?: number | null
+    kv_cache_dtype?: string | null
+  }
+}
 
 export interface RunConfig {
   name: string
   concurrency: number
   category: 'random' | 'shared_prefix' | 'exact_repeat'
   promptCount: number
+  /** Optional rich-text (HTML) notes the user attached when starting the run. */
+  description?: string
+  /** LLM server snapshot recorded at run start (present on stored runs). */
+  server?: ServerConfigSnapshot
 }
 
 export interface Run {
   id: string
   name: string
   config: string
+  /** Rich-text (HTML) description attached at run start. */
+  description?: string | null
   phase: RunPhase
   started_at: number | null
   ended_at: number | null

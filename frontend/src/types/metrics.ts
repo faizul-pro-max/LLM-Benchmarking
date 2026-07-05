@@ -24,6 +24,9 @@ export type RequestPhase = 'warmup' | 'benchmark'
 
 export interface RequestResult {
   id: string
+  /** 1-based, monotonically increasing per run — the authoritative "Req #"
+   *  to display (matches the per-run debug log's `req=` tag on the backend). */
+  seq?: number
   run_id: string
   prompt_id: string
   category: RequestCategory
@@ -41,8 +44,21 @@ export interface RequestResult {
   error?: string
 }
 
+/** Emitted by the load generator's own concurrency limiter while a run's
+ *  warmup/benchmark loop is active. Scoped to the current run (unlike
+ *  MetricsSnapshot's requests_running/requests_waiting, which are vLLM's
+ *  server-wide Prometheus gauges) and phase-aware. */
+export interface SchedulerUpdate {
+  runId: string
+  phase: 'warmup' | 'benchmark'
+  running: number
+  waiting: number
+  concurrency: number
+}
+
 export interface RequestUpdate {
   id: string
+  seq?: number
   state: RequestState
   prompt_text?: string
   prompt_id?: string

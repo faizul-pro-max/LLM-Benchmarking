@@ -6,6 +6,7 @@ export function runMigrations() {
       id          TEXT PRIMARY KEY,
       name        TEXT NOT NULL,
       config      TEXT NOT NULL,
+      description TEXT,
       phase       TEXT NOT NULL DEFAULT 'pending',
       started_at  INTEGER,
       ended_at    INTEGER,
@@ -102,6 +103,21 @@ export function runMigrations() {
 
   migrateMetricSnapshotsChatSession()
   migrateMetricSnapshotsVllmRaw()
+  migrateRunsDescription()
+}
+
+// Idempotent migration: persist a rich-text (HTML) description attached to a run
+// at start time. Older DBs lack the column; add it with a guarded ALTER.
+function migrateRunsDescription(): void {
+  type ColInfo = { name: string }
+  const cols = db.prepare(`PRAGMA table_info(runs)`).all() as ColInfo[]
+  if (cols.some((c) => c.name === 'description')) return
+  try {
+    db.exec(`ALTER TABLE runs ADD COLUMN description TEXT`)
+  } catch (err) {
+    // Column may already exist on a racing/older DB — ignore duplicate errors.
+    console.log({ msg: 'runs description add skipped', err: String(err), ts: Date.now() })
+  }
 }
 
 // Idempotent migration: persist the raw vLLM Prometheus text per snapshot so the

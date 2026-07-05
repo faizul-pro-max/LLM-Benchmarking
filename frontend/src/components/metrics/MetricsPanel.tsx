@@ -6,6 +6,7 @@ import { QueueBars } from './QueueBars'
 import { NetworkBadge } from './NetworkBadge'
 import { ComparisonTable } from '@/components/comparison/ComparisonTable'
 import { useMetrics } from '@/hooks/useMetrics'
+import { useRunStore } from '@/store/runStore'
 
 interface MetricsPanelProps {
   /** 'chat' trims the panel to live signals only — scheduler state and the
@@ -18,6 +19,8 @@ interface MetricsPanelProps {
 export function MetricsPanel({ mode = 'benchmark', rtt = null }: MetricsPanelProps = {}) {
   const showBenchmarkOnly = mode === 'benchmark'
   const { latest } = useMetrics()
+  const phase = useRunStore((s) => s.phase)
+  const isRunActive = phase === 'warmup' || phase === 'benchmarking'
 
   // Server-side TTFT (vLLM P50) vs the network round trip — NetworkBadge shows
   // the gap so client overhead is visible.
@@ -50,7 +53,7 @@ export function MetricsPanel({ mode = 'benchmark', rtt = null }: MetricsPanelPro
         <NetworkBadge rtt={rtt} serverTtft={serverTtft} />
       </div>
 
-      {showBenchmarkOnly && <QueueBars />}
+      {showBenchmarkOnly && isRunActive && <QueueBars />}
 
       {showBenchmarkOnly && (
         <div className="px-4 pb-4">

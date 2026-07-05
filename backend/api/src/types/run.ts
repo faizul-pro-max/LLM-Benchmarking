@@ -2,15 +2,42 @@ export type RunPhase = 'pending' | 'warmup' | 'benchmarking' | 'complete' | 'sto
 export type RequestState = 'queued' | 'prefilling' | 'decoding' | 'done' | 'error'
 export type RequestCategory = 'random' | 'shared_prefix' | 'exact_repeat'
 
+/** LLM server config snapshotted at run start (best-effort). Persisted inside
+ *  runs.config JSON as `server`, so a past benchmark records which server it
+ *  ran against (model, vLLM version, GPU, key runtime flags). */
+export interface ServerConfigSnapshot {
+  model_name?: string | null
+  vllm_url?: string | null
+  gpu_agent_url?: string | null
+  vllm_version?: string | null
+  served_model_id?: string | null
+  max_model_len?: number | null
+  gpu_name?: string | null
+  vram_total_mb?: number | null
+  runtime?: {
+    enable_prefix_caching?: boolean | null
+    gpu_memory_utilization?: number | null
+    block_size?: number | null
+    kv_cache_dtype?: string | null
+  }
+}
+
 export interface RunConfig {
   name: string
   concurrency: number
   category: RequestCategory
   promptCount: number
+  /** Optional rich-text (HTML) notes attached when starting the run. */
+  description?: string
+  /** LLM server snapshot recorded at run start. */
+  server?: ServerConfigSnapshot
 }
 
 export interface RequestResult {
   id: string
+  /** 1-based, monotonically increasing per run — matches the "Req #" shown in
+   *  the UI and the per-run debug log's `req=` tag (see runLogger.ts). */
+  seq?: number
   run_id: string
   run_number: number
   prompt_id: string

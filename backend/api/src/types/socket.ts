@@ -9,6 +9,12 @@ export interface PhaseChangePayload {
 export interface RequestUpdatePayload {
   id: string
   state: RequestState
+  /** 1-based, monotonically increasing per run (warmup + all benchmark loops
+   *  combined) — this is the authoritative "Req #" shown in the UI, and the
+   *  same number used to tag every line for this request in the per-run debug
+   *  log (see runLogger.ts), so a card stuck on "Decoding" can be grepped
+   *  directly by its displayed number. Sent on every update for the request. */
+  seq?: number
   /** Sent once on the initial 'queued' update so the UI can render the prompt
    *  preview, real per-request category badge, and prompt id. */
   prompt_text?: string
@@ -34,12 +40,26 @@ export interface RunCompletePayload {
   summary: AggregatedResult
 }
 
+/** Benchmark-scoped scheduler state, derived purely from our own concurrency
+ *  limiter (loadGenerator.ts makeLimit) — NOT from vLLM's global Prometheus
+ *  gauges, which reflect the whole server rather than just this run and don't
+ *  distinguish warmup vs benchmark. Only emitted while a run's warmup or
+ *  benchmark loop is actively executing. */
+export interface SchedulerUpdatePayload {
+  runId: string
+  phase: 'warmup' | 'benchmark'
+  running: number
+  waiting: number
+  concurrency: number
+}
+
 export interface ServerToClientEvents {
   'phase:change': (payload: PhaseChangePayload) => void
   'metrics:snapshot': (payload: MetricsSnapshot) => void
   'request:update': (payload: RequestUpdatePayload) => void
   'warmup:ttft': (payload: WarmupTtftPayload) => void
   'run:complete': (payload: RunCompletePayload) => void
+  'scheduler:update': (payload: SchedulerUpdatePayload) => void
 }
 
 export interface ClientToServerEvents {

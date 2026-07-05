@@ -2,11 +2,15 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import { getIo } from '../server'
-import { insertRun, updateRunPhase, getRunById } from '../db/queries/runs'
+import { insertRun, updateRunPhase, updateRunConfig, getRunById } from '../db/queries/runs'
 import { selectPrompts } from '../utils/sheetsLoader'
 import { startMetricsCollector, stopMetricsCollector } from '../utils/metricsCollector'
 import { runWarmup, runBenchmark, cancelRun, resetRunCancel, isRunCancelled } from '../utils/loadGenerator'
 import { computeAggregatedResult, saveAggregatedResult } from '../utils/aggregator'
+import { collectConfig, buildDoctorReport } from '../utils/doctor'
+import { isControllerConfigured, benchmarkStart, benchmarkHeartbeat, benchmarkEnd } from '../utils/controllerClient'
+import { startRunLog, stopRunLog, runLog } from '../utils/runLogger'
+import type { RunConfig } from '../types/run'
 
 const router = Router()
 
@@ -19,6 +23,7 @@ const RunStartSchema = z.object({
   concurrency: z.number().int().min(1).max(100).default(10),
   category: z.enum(['random', 'shared_prefix', 'exact_repeat']).default('random'),
   promptCount: z.number().int().min(1).max(500).default(100),
+  description: z.string().max(20000).optional(),
 })
 
 router.post('/start', async (req, res) => {
@@ -37,21 +42,93 @@ router.post('/start', async (req, res) => {
   const runId  = uuidv4()
   const io     = getIo()
 
+  // Build the full stored config, including the synchronous env-derived server
+  // snapshot captured at run start. Async runtime/version/GPU fields are enriched
+  // below (best-effort) via the doctor report before warmup begins.
+  const cfg = collectConfig()
+  const fullConfig: RunConfig = {
+    name: config.name,
+    concurrency: config.concurrency,
+    category: config.category,
+    promptCount: config.promptCount,
+    description: config.description,
+    server: {
+      model_name: cfg.model_name,
+      vllm_url: cfg.vllm_url,
+      gpu_agent_url: cfg.gpu_agent_url,
+      runtime: {},
+    },
+  }
+
   runInProgress = true
-  insertRun(runId, config.name, config)
+  insertRun(runId, config.name, fullConfig, config.description)
+  startRunLog(runId, config.name)
+  runLog.info(undefined, `run start name="${config.name}" concurrency=${config.concurrency} category=${config.category} promptCount=${config.promptCount}`)
   res.json({ runId })
 
   // Run pipeline async (non-blocking)
   setImmediate(async () => {
+    // Scenario Controller benchmark lock (best-effort, non-fatal): tell the
+    // controller the box is busy for the whole run, heartbeat while it runs, and
+    // release it in finally. Any controller failure is logged and ignored — it's
+    // an observability lock, never a hard dependency of the benchmark.
+    let benchmarkId: string | null = null
+    let heartbeat: ReturnType<typeof setInterval> | null = null
+    if (isControllerConfigured()) {
+      try {
+        const lock = await benchmarkStart(config.name)
+        benchmarkId = lock?.id ?? null
+        console.log({ msg: 'benchmark lock acquired', runId, benchmarkId, ts: Date.now() })
+        if (benchmarkId) {
+          heartbeat = setInterval(() => {
+            if (!benchmarkId) return
+            benchmarkHeartbeat(benchmarkId).catch((err) =>
+              console.log({ msg: 'benchmark heartbeat failed', runId, benchmarkId, err: String(err), ts: Date.now() }),
+            )
+          }, 45000)
+        }
+      } catch (err) {
+        console.log({ msg: 'benchmark lock skipped', runId, err: String(err), ts: Date.now() })
+      }
+    }
+
     try {
       // Honour the selected category: filter the pool to that category and cycle
       // up to promptCount (exact_repeat → same prompt repeated, shared_prefix →
       // prompts sharing a long prefix, random → varied prompts).
       const prompts = selectPrompts(config.category, config.promptCount)
 
+      // Best-effort: enrich the server snapshot with live vLLM/GPU details before
+      // warmup. A doctor failure or timeout must NEVER abort the benchmark, so the
+      // whole block is guarded and merely logs on failure.
+      try {
+        const report = await Promise.race([
+          buildDoctorReport(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('doctor timeout')), 4000)),
+        ])
+        if (fullConfig.server) {
+          fullConfig.server.vllm_version   = report.model.vllm_version
+          fullConfig.server.served_model_id = report.model.served_model_id
+          fullConfig.server.max_model_len  = report.model.max_model_len
+          fullConfig.server.gpu_name       = report.gpu.gpu_name
+          fullConfig.server.vram_total_mb  = report.gpu.vram_total_mb
+          fullConfig.server.runtime = {
+            enable_prefix_caching: report.model.runtime.enable_prefix_caching,
+            gpu_memory_utilization: report.model.runtime.gpu_memory_utilization,
+            block_size: report.model.runtime.block_size,
+            kv_cache_dtype: report.model.runtime.kv_cache_dtype,
+          }
+        }
+        updateRunConfig(runId, fullConfig)
+        console.log({ msg: 'run server snapshot enriched', runId, ts: Date.now() })
+      } catch (err) {
+        console.log({ msg: 'run server snapshot enrichment skipped', runId, err: String(err), ts: Date.now() })
+      }
+
       // Warmup
       updateRunPhase(runId, 'warmup')
       io.emit('phase:change', { phase: 'warmup', runId })
+      runLog.info(undefined, `warmup phase started (${process.env.WARMUP_REQUEST_COUNT ?? '20'} requests)`)
       startMetricsCollector(io, runId)
       await runWarmup(io, runId, prompts, config.concurrency)
 
@@ -59,8 +136,11 @@ router.post('/start', async (req, res) => {
       if (!isRunCancelled()) {
         updateRunPhase(runId, 'benchmarking')
         io.emit('phase:change', { phase: 'benchmarking', runId })
+        runLog.info(undefined, `benchmarking phase started (${config.promptCount} prompts x 3 runs)`)
         for (let i = 1; i <= 3 && !isRunCancelled(); i++) {
+          runLog.info(undefined, `benchmark run#=${i} started`)
           await runBenchmark(io, runId, prompts, config, i)
+          runLog.info(undefined, `benchmark run#=${i} finished`)
         }
       }
 
@@ -74,15 +154,28 @@ router.post('/start', async (req, res) => {
       io.emit('phase:change', { phase: finalPhase, runId })
       io.emit('run:complete', { runId, summary })
 
+      runLog.info(undefined, `run finished phase=${finalPhase}`)
       console.log({ msg: 'run finished', runId, phase: finalPhase, ts: Date.now() })
     } catch (err) {
       stopMetricsCollector()
       updateRunPhase(runId, 'error', Date.now())
       io.emit('phase:change', { phase: 'error', runId })
+      runLog.error(undefined, `run error: ${String(err)}`)
       console.log({ msg: 'run error', runId, err: String(err), ts: Date.now() })
     } finally {
+      // Release the controller benchmark lock (best-effort).
+      if (heartbeat) clearInterval(heartbeat)
+      if (benchmarkId) {
+        try {
+          await benchmarkEnd(benchmarkId)
+          console.log({ msg: 'benchmark lock released', runId, benchmarkId, ts: Date.now() })
+        } catch (err) {
+          console.log({ msg: 'benchmark lock release failed', runId, benchmarkId, err: String(err), ts: Date.now() })
+        }
+      }
       runInProgress = false
       resetRunCancel()
+      stopRunLog()
     }
   })
 })
@@ -96,6 +189,7 @@ router.post('/stop', (req, res) => {
   // Stop metrics persistence immediately and signal the in-flight pipeline to halt
   // (aborts streaming requests). The pipeline then drains, aggregates the partial
   // results, and emits run:complete — so the collect step is driven from one place.
+  runLog.info(undefined, 'stop requested')
   stopMetricsCollector()
   cancelRun()
   res.json({ ok: true })
