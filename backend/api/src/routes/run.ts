@@ -4,10 +4,14 @@ import { v4 as uuidv4 } from 'uuid'
 import { getIo } from '../server'
 import { insertRun, updateRunPhase, updateRunConfig, getRunById } from '../db/queries/runs'
 import { selectPrompts } from '../utils/sheetsLoader'
+import type { Prompt } from '../utils/sheetsLoader'
+import { getCachedWorkloadPrompts, selectHfPrompts, selectConversations } from '../utils/hfDatasetLoader'
+import type { Conversation } from '../utils/hfDatasetLoader'
 import { startMetricsCollector, stopMetricsCollector } from '../utils/metricsCollector'
-import { runWarmup, runBenchmark, cancelRun, resetRunCancel, isRunCancelled } from '../utils/loadGenerator'
+import { runWarmup, runBenchmark, runQaConversations, flattenConversations, cancelRun, resetRunCancel, isRunCancelled, clearMaxModelLenCache } from '../utils/loadGenerator'
 import { computeAggregatedResult, saveAggregatedResult } from '../utils/aggregator'
 import { collectConfig, buildDoctorReport } from '../utils/doctor'
+import { measureNetworkRtt } from '../utils/networkProbe'
 import { isControllerConfigured, benchmarkStart, benchmarkHeartbeat, benchmarkEnd } from '../utils/controllerClient'
 import { startRunLog, stopRunLog, runLog } from '../utils/runLogger'
 import type { RunConfig } from '../types/run'
@@ -23,6 +27,10 @@ const RunStartSchema = z.object({
   concurrency: z.number().int().min(1).max(100).default(10),
   category: z.enum(['random', 'shared_prefix', 'exact_repeat']).default('random'),
   promptCount: z.number().int().min(1).max(500).default(100),
+  // Which prompt pool drives the run — orthogonal to category (see types/run.ts).
+  workload: z.enum(['short', 'long', 'qa']).default('short'),
+  // Only meaningful when workload === 'qa'; ignored otherwise.
+  qaMode: z.enum(['sequential', 'flattened']).default('sequential'),
   description: z.string().max(20000).optional(),
 })
 
@@ -51,6 +59,8 @@ router.post('/start', async (req, res) => {
     concurrency: config.concurrency,
     category: config.category,
     promptCount: config.promptCount,
+    workload: config.workload,
+    qaMode: config.qaMode,
     description: config.description,
     server: {
       model_name: cfg.model_name,
@@ -63,7 +73,7 @@ router.post('/start', async (req, res) => {
   runInProgress = true
   insertRun(runId, config.name, fullConfig, config.description)
   startRunLog(runId, config.name)
-  runLog.info(undefined, `run start name="${config.name}" concurrency=${config.concurrency} category=${config.category} promptCount=${config.promptCount}`)
+  runLog.info(undefined, `run start name="${config.name}" concurrency=${config.concurrency} category=${config.category} promptCount=${config.promptCount} workload=${config.workload}${config.workload === 'qa' ? ` qaMode=${config.qaMode}` : ''}`)
   res.json({ runId })
 
   // Run pipeline async (non-blocking)
@@ -93,10 +103,30 @@ router.post('/start', async (req, res) => {
     }
 
     try {
-      // Honour the selected category: filter the pool to that category and cycle
-      // up to promptCount (exact_repeat → same prompt repeated, shared_prefix →
-      // prompts sharing a long prefix, random → varied prompts).
-      const prompts = selectPrompts(config.category, config.promptCount)
+      // Honour the selected workload + category. workload picks which prompt
+      // pool sources the run: 'short'/'long' use the HF-loaded dataset for that
+      // workload if one has been loaded (see POST /api/datasets/load), falling
+      // back to the local/Sheets pool (filtered by category, cycled up to
+      // promptCount — exact_repeat → same prompt repeated, shared_prefix →
+      // prompts sharing a long prefix, random → varied prompts) otherwise.
+      // 'qa' always sources multi-turn conversations from HF (promptCount is
+      // reinterpreted as "how many conversations"); category doesn't apply.
+      let prompts: Prompt[] = []
+      let conversations: Conversation[] = []
+      if (config.workload === 'qa') {
+        conversations = selectConversations(config.promptCount)
+        if (conversations.length === 0) {
+          throw new Error('No Q&A conversations loaded — POST /api/datasets/load {"workload":"qa"} before starting a Q&A run')
+        }
+        // Warmup always uses the flattened view regardless of qaMode — priming
+        // the KV cache doesn't need real multi-turn chat history.
+        prompts = flattenConversations(conversations)
+      } else {
+        const hfPrompts = getCachedWorkloadPrompts(config.workload)
+        prompts = hfPrompts && hfPrompts.length > 0
+          ? selectHfPrompts(config.workload, config.promptCount)
+          : selectPrompts(config.category, config.promptCount)
+      }
 
       // Best-effort: enrich the server snapshot with live vLLM/GPU details before
       // warmup. A doctor failure or timeout must NEVER abort the benchmark, so the
@@ -125,21 +155,38 @@ router.post('/start', async (req, res) => {
         console.log({ msg: 'run server snapshot enrichment skipped', runId, err: String(err), ts: Date.now() })
       }
 
+      // Network RTT baseline (best-effort, non-fatal): a handful of lightweight
+      // probes to vLLM before warmup starts, used later to derive a
+      // network-excluded TTFT alongside the client-measured (network-included)
+      // one — see aggregator.ts computeAggregatedResult.
+      let networkRttMs: number | null = null
+      try {
+        networkRttMs = await measureNetworkRtt()
+        runLog.info(undefined, `network RTT probe: ${networkRttMs != null ? `${networkRttMs}ms` : 'unavailable'}`)
+      } catch (err) {
+        console.log({ msg: 'network RTT probe failed', runId, err: String(err), ts: Date.now() })
+      }
+
       // Warmup
       updateRunPhase(runId, 'warmup')
-      io.emit('phase:change', { phase: 'warmup', runId })
+      io.emit('phase:change', { phase: 'warmup', runId, network_rtt_ms: networkRttMs })
       runLog.info(undefined, `warmup phase started (${process.env.WARMUP_REQUEST_COUNT ?? '20'} requests)`)
       startMetricsCollector(io, runId)
-      await runWarmup(io, runId, prompts, config.concurrency)
+      await runWarmup(io, runId, prompts, config.concurrency, fullConfig.server?.max_model_len, config.workload)
 
       // 3 benchmark runs — bail out early if Stop was pressed.
       if (!isRunCancelled()) {
         updateRunPhase(runId, 'benchmarking')
         io.emit('phase:change', { phase: 'benchmarking', runId })
-        runLog.info(undefined, `benchmarking phase started (${config.promptCount} prompts x 3 runs)`)
+        const unitLabel = config.workload === 'qa' ? 'conversations' : 'prompts'
+        runLog.info(undefined, `benchmarking phase started (${config.promptCount} ${unitLabel} x 3 runs)`)
         for (let i = 1; i <= 3 && !isRunCancelled(); i++) {
           runLog.info(undefined, `benchmark run#=${i} started`)
-          await runBenchmark(io, runId, prompts, config, i)
+          if (config.workload === 'qa' && config.qaMode === 'sequential') {
+            await runQaConversations(io, runId, conversations, config, i)
+          } else {
+            await runBenchmark(io, runId, prompts, config, i, fullConfig.server?.max_model_len)
+          }
           runLog.info(undefined, `benchmark run#=${i} finished`)
         }
       }
@@ -147,7 +194,7 @@ router.post('/start', async (req, res) => {
       // Aggregate whatever was collected — this is the "collect" step for both a
       // natural finish and an early Stop (partial results are persisted per-request).
       stopMetricsCollector()
-      const summary = computeAggregatedResult(runId)
+      const summary = computeAggregatedResult(runId, networkRttMs)
       saveAggregatedResult(summary)
       const finalPhase = isRunCancelled() ? 'stopped' : 'complete'
       updateRunPhase(runId, finalPhase, Date.now())
@@ -175,6 +222,7 @@ router.post('/start', async (req, res) => {
       }
       runInProgress = false
       resetRunCancel()
+      clearMaxModelLenCache(runId)
       stopRunLog()
     }
   })

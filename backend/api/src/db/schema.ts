@@ -76,7 +76,11 @@ export function runMigrations() {
       kv_cache_peak           REAL,
       total_requests          INTEGER,
       warmup_excluded         INTEGER DEFAULT 1,
-      run_count               INTEGER DEFAULT 3
+      run_count               INTEGER DEFAULT 3,
+      network_rtt_ms          REAL,
+      ttft_p50_no_network_ms  REAL,
+      ttft_p90_no_network_ms  REAL,
+      ttft_p99_no_network_ms  REAL
     );
 
     CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -105,6 +109,8 @@ export function runMigrations() {
   migrateMetricSnapshotsVllmRaw()
   migrateRunsDescription()
   migrateMetricSnapshotsKvCache()
+  migrateAggregatedResultsNetworkTtft()
+  migrateRequestsWorkload()
 }
 
 // Idempotent migration: persist a rich-text (HTML) description attached to a run
@@ -160,6 +166,54 @@ function migrateMetricSnapshotsKvCache(): void {
     } catch (err) {
       // Column may already exist on a racing/older DB — ignore duplicate errors.
       console.log({ msg: `metric_snapshots ${name} add skipped`, err: String(err), ts: Date.now() })
+    }
+  }
+}
+
+// Idempotent migration: network-excluded TTFT percentiles, derived by subtracting
+// a per-run measured vLLM network RTT baseline (see networkProbe.ts) from each
+// request's client-measured ttft_ms before computing percentiles. Older DBs
+// lack these columns; add each with a guarded ALTER.
+function migrateAggregatedResultsNetworkTtft(): void {
+  type ColInfo = { name: string }
+  const cols = db.prepare(`PRAGMA table_info(aggregated_results)`).all() as ColInfo[]
+  const existing = new Set(cols.map((c) => c.name))
+  const newColumns: Record<string, string> = {
+    network_rtt_ms: 'REAL',
+    ttft_p50_no_network_ms: 'REAL',
+    ttft_p90_no_network_ms: 'REAL',
+    ttft_p99_no_network_ms: 'REAL',
+  }
+  for (const [name, type] of Object.entries(newColumns)) {
+    if (existing.has(name)) continue
+    try {
+      db.exec(`ALTER TABLE aggregated_results ADD COLUMN ${name} ${type}`)
+    } catch (err) {
+      // Column may already exist on a racing/older DB — ignore duplicate errors.
+      console.log({ msg: `aggregated_results ${name} add skipped`, err: String(err), ts: Date.now() })
+    }
+  }
+}
+
+// Idempotent migration: workload (short/long/qa) tagging plus multi-turn Q&A
+// conversation linkage on individual requests. Older DBs lack these columns;
+// add each with a guarded ALTER.
+function migrateRequestsWorkload(): void {
+  type ColInfo = { name: string }
+  const cols = db.prepare(`PRAGMA table_info(requests)`).all() as ColInfo[]
+  const existing = new Set(cols.map((c) => c.name))
+  const newColumns: Record<string, string> = {
+    workload: 'TEXT',
+    conversation_id: 'TEXT',
+    turn_index: 'INTEGER',
+  }
+  for (const [name, type] of Object.entries(newColumns)) {
+    if (existing.has(name)) continue
+    try {
+      db.exec(`ALTER TABLE requests ADD COLUMN ${name} ${type}`)
+    } catch (err) {
+      // Column may already exist on a racing/older DB — ignore duplicate errors.
+      console.log({ msg: `requests ${name} add skipped`, err: String(err), ts: Date.now() })
     }
   }
 }

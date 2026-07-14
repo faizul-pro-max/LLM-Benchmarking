@@ -3,13 +3,18 @@
 # launch.sh — one command to bring up the whole LLM benchmarking stack:
 #   Redis (docker)  +  API :3001  +  Frontend :7755  +  Worker
 #
-# It can also point the platform at a fresh pair of GPU tunnel URLs first:
-# pass the vLLM and GPU-agent endpoints and launch.sh will flush DNS, wait for
-# both to report healthy, and write them into .env (via scripts/set_endpoints.sh)
-# before starting the stack.
+# A GPU server is optional. If you have one up with Cloudflare tunnel URLs for
+# the vLLM server and the GPU agent, launch.sh can flush DNS, wait for both to
+# report healthy, and write them into .env (via scripts/set_endpoints.sh)
+# before starting the stack. If you don't have GPU URLs yet, it skips that
+# entirely (no DNS flush, no health polling) and starts the app as-is so the
+# UI still comes up (e.g. against mock data).
+#
+# Endpoints can be supplied non-interactively as args, or — if omitted and
+# running in a terminal — launch.sh will ask interactively.
 #
 # Usage:
-#   ./launch.sh                                   start everything with the current .env
+#   ./launch.sh                                   ask whether you have GPU URLs, then start
 #   ./launch.sh <vllm_url> <gpu_agent_url>        resolve DNS + set endpoints, then start
 #   ./launch.sh --force                           start, killing any process on 3001/7755 without asking
 #   ./launch.sh --stop                            stop everything, including the Redis container
@@ -80,6 +85,7 @@ for arg in "$@"; do
     --force|-y)    FORCE=1 ;;
     -h|--help)
       echo "Usage: ./launch.sh [<vllm_url> <gpu_agent_url>] [--force|-y] [--stop]"
+      echo "  (no args)                    ask whether you have GPU tunnel URLs; skip config if not"
       echo "  <vllm_url> <gpu_agent_url>   flush DNS, wait for /health, write both into .env, then start"
       echo "  --force, -y                  kill any process on $API_PORT/$WEB_PORT without prompting"
       echo "  --stop                       stop API, frontend, worker, and Redis"
@@ -103,12 +109,51 @@ if [[ -n "$VLLM_ARG" && -z "$GPU_AGENT_ARG" ]]; then
 fi
 
 # --- preflight ---
+# Docker/Redis only back the BullMQ worker queue (backend/consumers) — the
+# live benchmark run path (routes/run.ts) doesn't touch Redis at all. So a
+# missing Docker daemon is a warning, not a hard stop: the frontend + API
+# still come up fine, just without the queue worker's Redis connection.
+DOCKER_UP=1
+WORKER_ENABLED=true
 if ! docker info >/dev/null 2>&1; then
-  echo "✗ Docker isn't running. Start Docker Desktop and retry." >&2
-  exit 1
+  DOCKER_UP=0
+  echo "⚠ Docker isn't running — Redis won't be available, so the queue worker (backend/consumers) can't connect."
+  if [[ -t 0 ]]; then
+    read -r -p "  Start it anyway? It'll just retry against Redis in the background. [y/N] " start_worker
+    if [[ "$start_worker" =~ ^[Yy]$ ]]; then
+      echo "  Starting worker anyway — expect Redis connection retries in its logs."
+    else
+      WORKER_ENABLED=false
+      echo "  Skipping the worker (WORKER_ENABLED=false). Frontend/API still start normally."
+    fi
+  else
+    WORKER_ENABLED=false
+    echo "  No terminal to confirm — skipping the worker (WORKER_ENABLED=false). Frontend/API still start normally."
+  fi
+fi
+export WORKER_ENABLED
+
+# --- Ask interactively if no endpoints were passed on the command line ---
+# GPU setup is optional — plenty of runs are against mock data with no GPU at
+# all. Only prompt when we have a TTY to read from; a non-interactive shell
+# with no args just skips straight to launch.
+if [[ -z "$VLLM_ARG" && -t 0 ]]; then
+  read -r -p "Do you have a GPU server set up with tunnel URLs for the Agent Server and vLLM Server? [y/N] " have_urls
+  if [[ "$have_urls" =~ ^[Yy]$ ]]; then
+    read -r -p "  Agent Server URL (e.g. https://xxx.trycloudflare.com): " GPU_AGENT_ARG
+    read -r -p "  vLLM Server URL  (e.g. https://yyy.trycloudflare.com): " VLLM_ARG
+    if [[ -z "$VLLM_ARG" || -z "$GPU_AGENT_ARG" ]]; then
+      echo "✗ Both URLs are required — skipping endpoint configuration." >&2
+      VLLM_ARG=""
+      GPU_AGENT_ARG=""
+    fi
+  else
+    echo "  No GPU URLs — skipping DNS flush/health check, launching with the current .env."
+  fi
+  echo
 fi
 
-# --- Resolve DNS + set endpoints (only when tunnel URLs were passed) ---
+# --- Resolve DNS + set endpoints (only when tunnel URLs were passed/entered) ---
 # set_endpoints.sh flushes the DNS cache, polls each <url>/health until HTTP 200,
 # and writes VLLM_URL / GPU_AGENT_URL into .env (creating it from .env.example
 # if absent). It exits non-zero if an endpoint never becomes healthy, which
@@ -120,8 +165,13 @@ if [[ -n "$VLLM_ARG" ]]; then
 fi
 
 if [[ ! -f .env ]]; then
-  echo "✗ No .env at project root. Copy .env.example → .env and set GPU_SERVER_IP / VLLM_URL etc." >&2
-  exit 1
+  if [[ -f .env.example ]]; then
+    echo "▶ No .env found — creating one from .env.example (no GPU URLs set, mock data will be used)."
+    cp .env.example .env
+  else
+    echo "✗ No .env at project root and no .env.example to copy from. Create .env and set GPU_SERVER_IP / VLLM_URL etc." >&2
+    exit 1
+  fi
 fi
 
 # --- Free required ports (kill stale runs holding them) ---
@@ -129,18 +179,22 @@ echo "▶ Checking ports…"
 free_port "$API_PORT" "API"
 free_port "$WEB_PORT" "Frontend"
 
-# --- Redis ---
-echo "▶ Starting Redis…"
-docker compose up -d redis >/dev/null
+# --- Redis (skipped if Docker isn't up) ---
+if [[ "$DOCKER_UP" == "1" ]]; then
+  echo "▶ Starting Redis…"
+  docker compose up -d redis >/dev/null
 
-echo "▶ Waiting for Redis…"
-for _ in $(seq 1 20); do
-  if docker compose exec -T redis redis-cli ping >/dev/null 2>&1; then
-    echo "  Redis ready."
-    break
-  fi
-  sleep 0.5
-done
+  echo "▶ Waiting for Redis…"
+  for _ in $(seq 1 20); do
+    if docker compose exec -T redis redis-cli ping >/dev/null 2>&1; then
+      echo "  Redis ready."
+      break
+    fi
+    sleep 0.5
+  done
+else
+  echo "▶ Skipping Redis (Docker not running)."
+fi
 
 # --- App (API + frontend + worker via concurrently) ---
 # Ctrl+C propagates to concurrently, which shuts down all three.

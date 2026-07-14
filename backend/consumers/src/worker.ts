@@ -4,6 +4,15 @@ import { benchmarkProcessor } from './processors/benchmarkProcessor'
 import { metricsProcessor } from './processors/metricsProcessor'
 import type { BenchmarkJob, MetricsJob } from './types/jobs'
 
+// The live benchmark run path (backend/api routes/run.ts) doesn't enqueue
+// jobs here — this worker only matters if something is using the BullMQ
+// queue. Set WORKER_ENABLED=false (e.g. no Redis available) to skip
+// connecting entirely instead of retrying against an unreachable Redis.
+if (process.env.WORKER_ENABLED === 'false') {
+  console.log({ msg: 'worker disabled via WORKER_ENABLED=false — not connecting to Redis', ts: Date.now() })
+  process.exit(0)
+}
+
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
 
 // BullMQ bundles its own ioredis — pass URL string, not an ioredis instance

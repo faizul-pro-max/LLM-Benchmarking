@@ -5,6 +5,11 @@ export interface Prompt {
   id: string
   text: string
   category: string
+  /** Flattened Q&A mode only (see loadGenerator.ts flattenConversations):
+   *  which conversation this turn was baked from. */
+  conversation_id?: string
+  /** Flattened Q&A mode only: 0-based turn position within its conversation. */
+  turn_index?: number
 }
 
 export type PromptCategory = 'random' | 'shared_prefix' | 'exact_repeat'

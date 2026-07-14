@@ -28,3 +28,9 @@ Thumbs.db
 
 /screens
 logs/
+
+results/
+
+# Claude Code project state / scratch docs
+.claude/
+claude-tasks/

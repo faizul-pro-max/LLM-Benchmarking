@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import clsx from 'clsx'
 import type { RequestResult } from '@/types/metrics'
 import { fmtMs } from '@/utils/formatters'
+import { useRunStore } from '@/store/runStore'
 
 interface RequestDetailModalProps {
   req: RequestResult
@@ -45,6 +46,15 @@ export function RequestDetailModal({ req, index, onClose }: RequestDetailModalPr
   const tps =
     req.tpot_ms != null && req.tpot_ms > 0 ? Math.round(1000 / req.tpot_ms) : null
 
+  // Network-excluded TTFT estimate: subtract the run's measured vLLM RTT
+  // baseline (probed once at run start — see backend networkProbe.ts) from
+  // this request's client-measured TTFT. Falls back to the completed run's
+  // summary if the live 'warmup' phase event that carries it was missed
+  // (e.g. page reload mid-run).
+  const networkRttMs = useRunStore((s) => s.networkRttMs ?? s.summary?.network_rtt_ms ?? null)
+  const ttftNoNetworkMs =
+    req.ttft_ms != null && networkRttMs != null ? Math.max(0, req.ttft_ms - networkRttMs) : null
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -63,6 +73,11 @@ export function RequestDetailModal({ req, index, onClose }: RequestDetailModalPr
             <span className="font-mono text-sm text-fg">
               Req #{String(req.seq ?? index + 1).padStart(3, '0')}
             </span>
+            {req.workload === 'qa' && req.conversation_id != null && req.turn_index != null && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-card border border-border text-muted whitespace-nowrap">
+                conv {req.conversation_id.slice(-5)} · turn {req.turn_index + 1}
+              </span>
+            )}
             <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase bg-card border border-border text-muted">
               {CATEGORY_LABELS[req.category]}
             </span>
@@ -104,6 +119,10 @@ export function RequestDetailModal({ req, index, onClose }: RequestDetailModalPr
             </h3>
             <div className="grid grid-cols-3 gap-2">
               <Metric label="TTFT" value={fmtMs(req.ttft_ms)} />
+              <Metric
+                label="TTFT (No Network)"
+                value={ttftNoNetworkMs != null ? fmtMs(ttftNoNetworkMs) : '—'}
+              />
               <Metric label="Prefill" value={fmtMs(req.prefill_ms)} />
               <Metric label="Decode" value={fmtMs(req.decode_ms)} />
               <Metric label="Total" value={fmtMs(req.total_ms)} />

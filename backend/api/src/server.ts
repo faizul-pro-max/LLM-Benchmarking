@@ -12,8 +12,10 @@ import runRouter from './routes/run'
 import resultsRouter from './routes/results'
 import experimentsRouter from './routes/experiments'
 import promptsRouter from './routes/prompts'
+import datasetsRouter from './routes/datasets'
 import chatRouter from './routes/chat'
 import controllerRouter from './routes/controller'
+import debugRouter from './routes/debug'
 import { startMetricsLoop, setChatSession } from './utils/metricsCollector'
 import type { ServerToClientEvents, ClientToServerEvents } from './types/socket'
 
@@ -39,8 +41,10 @@ app.use('/run', runRouter)
 app.use('/results', resultsRouter)
 app.use('/experiments', experimentsRouter)
 app.use('/prompts', promptsRouter)
+app.use('/datasets', datasetsRouter)
 app.use('/chat', chatRouter)
 app.use('/controller', controllerRouter)
+app.use('/debug', debugRouter)
 app.use(errorHandler)
 
 io.on('connection', (socket) => {

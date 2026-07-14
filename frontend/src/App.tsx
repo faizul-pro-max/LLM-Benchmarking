@@ -9,6 +9,7 @@ import { useSocket } from '@/hooks/useSocket'
 import { useRun } from '@/hooks/useRun'
 import { useHealth } from '@/hooks/useHealth'
 import { usePrompts } from '@/hooks/usePrompts'
+import { useDatasetStatus } from '@/hooks/useDatasetStatus'
 import { useMetrics } from '@/hooks/useMetrics'
 import { newChatSession } from '@/hooks/useChatSession'
 import { useMetricsStore } from '@/store/metricsStore'
@@ -28,17 +29,22 @@ export default function App() {
     concurrency,
     category,
     promptCount,
+    workload,
+    qaMode,
     description,
     start,
     stop,
     setConcurrency,
     setCategory,
     setPromptCount,
+    setWorkload,
+    setQaMode,
     setDescription,
   } = useRun(socket)
 
   const { vllmOk, model, experiment } = useHealth()
   const { source: promptSource, byCategory: promptsByCategory } = usePrompts()
+  const { status: datasetStatus, reload: reloadDatasetStatus } = useDatasetStatus()
   const { latest } = useMetrics()
   // Single exclusive navigation state. The three top-level views are mutually
   // exclusive tabs — switching one always leaves a well-defined view (no stale
@@ -134,6 +140,10 @@ export default function App() {
                 promptSource={promptSource}
                 promptsByCategory={promptsByCategory}
                 promptCount={promptCount}
+                workload={workload}
+                qaMode={qaMode}
+                datasetStatus={datasetStatus}
+                onDatasetLoaded={reloadDatasetStatus}
                 description={description}
                 requests={requests}
                 onStart={handleStart}
@@ -142,6 +152,8 @@ export default function App() {
                 onPromptCountChange={setPromptCount}
                 onDescriptionChange={setDescription}
                 onCategoryChange={setCategory}
+                onWorkloadChange={setWorkload}
+                onQaModeChange={setQaMode}
               />
             )}
           </div>

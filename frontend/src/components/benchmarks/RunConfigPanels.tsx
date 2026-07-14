@@ -40,13 +40,25 @@ const CATEGORY_LABELS: Record<string, string> = {
   exact_repeat: 'exact repeat',
 }
 
-/** Task 1.2 — the benchmark run parameters (concurrency / prompt count / category). */
+const WORKLOAD_LABELS: Record<string, string> = {
+  short: 'Short',
+  long: 'Long',
+  qa: 'Q&A',
+}
+
+function workloadLabel(config: RunConfig): string {
+  const workload = config.workload ?? 'short'
+  const base = WORKLOAD_LABELS[workload] ?? dash(workload)
+  return workload === 'qa' ? `${base} (${config.qaMode ?? 'sequential'})` : base
+}
+
+/** Task 1.2 — the benchmark run parameters (concurrency / prompt count / workload / category). */
 export function RunConfigPanel({ config }: { config: RunConfig | null }) {
   if (!config) return null
   return (
     <div className="px-4 py-3 border-t border-border">
       <h3 className="text-[11px] font-semibold text-fg mb-2">Run Config</h3>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         <div className="bg-card border border-border rounded-lg p-3 flex flex-col gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">Concurrency</span>
           <span className="text-lg font-bold text-fg leading-none">{dash(config.concurrency)}</span>
@@ -54,6 +66,10 @@ export function RunConfigPanel({ config }: { config: RunConfig | null }) {
         <div className="bg-card border border-border rounded-lg p-3 flex flex-col gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">Prompt Count</span>
           <span className="text-lg font-bold text-fg leading-none">{dash(config.promptCount)}</span>
+        </div>
+        <div className="bg-card border border-border rounded-lg p-3 flex flex-col gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">Workload</span>
+          <span className="text-lg font-bold text-fg leading-none">{workloadLabel(config)}</span>
         </div>
         <div className="bg-card border border-border rounded-lg p-3 flex flex-col gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">Category</span>

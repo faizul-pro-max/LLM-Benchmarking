@@ -10,14 +10,16 @@ export function useRun(_socket: Socket | null) {
   const concurrency = useRunStore((s) => s.concurrency)
   const category = useRunStore((s) => s.category)
   const promptCount = useRunStore((s) => s.promptCount)
+  const workload = useRunStore((s) => s.workload)
+  const qaMode = useRunStore((s) => s.qaMode)
   const description = useRunStore((s) => s.description)
   const summary = useRunStore((s) => s.summary)
-  const { startRun, setConcurrency, setCategory, setPromptCount, setDescription } =
+  const { startRun, setConcurrency, setCategory, setPromptCount, setWorkload, setQaMode, setDescription } =
     useRunStore.getState()
 
   const start = async (name: string) => {
     const { description } = useRunStore.getState()
-    const config: RunConfig = { name, concurrency, category, promptCount, description }
+    const config: RunConfig = { name, concurrency, category, promptCount, workload, qaMode, description }
     // Backend has no run:start socket listener — the pipeline is a REST route.
     // Start via REST, then the socket streams phase/metrics/request updates.
     const res = await fetch('/api/run/start', {
@@ -54,6 +56,8 @@ export function useRun(_socket: Socket | null) {
     concurrency,
     category,
     promptCount,
+    workload,
+    qaMode,
     description,
     summary,
     start,
@@ -61,6 +65,8 @@ export function useRun(_socket: Socket | null) {
     setConcurrency,
     setCategory,
     setPromptCount,
+    setWorkload,
+    setQaMode,
     setDescription,
   }
 }

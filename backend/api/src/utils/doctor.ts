@@ -86,7 +86,10 @@ function fetchJson(url: string, ms: number, headers?: Record<string, string>) {
 
 function toBool(v: string | undefined): boolean | null {
   if (v == null) return null
-  return v.toLowerCase() === 'true'
+  const lower = v.toLowerCase()
+  if (lower === 'true' || lower === '1') return true
+  if (lower === 'false' || lower === '0') return false
+  return null
 }
 
 function toNum(v: string | undefined): number | null {

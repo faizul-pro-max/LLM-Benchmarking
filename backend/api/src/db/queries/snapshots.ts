@@ -1,8 +1,25 @@
 import db from '../connection'
+import { logKvCacheDebug } from '../../utils/kvCacheDebugLogger'
 import type { MetricsSnapshot } from '../../types/metrics'
 
 export function insertSnapshot(runId: string, s: MetricsSnapshot) {
   const kv = s.kv_cache
+  const values = {
+    runId, ts: s.ts, transport_ms: s.transport_ms, gpu_util: s.gpu_util, vram_used_mb: s.vram_used_mb, vram_total_mb: s.vram_total_mb,
+    power_w: s.power_w, temp_c: s.temp_c, gpu_name: s.gpu_name, kv_cache_pct: s.kv_cache_pct, requests_running: s.requests_running,
+    requests_waiting: s.requests_waiting, requests_swapped: s.requests_swapped ?? 0, tokens_per_sec: s.tokens_per_sec, ttft_p50_ms: s.ttft_p50_ms, ttft_p99_ms: s.ttft_p99_ms, vllm_raw: s.vllm_raw ?? null,
+    kv_total_tokens: kv?.total_tokens ?? null, kv_block_size: kv?.block_size ?? null, kv_total_gb: kv?.total_gb ?? null,
+    kv_used_tokens: kv?.used_tokens ?? null, kv_free_tokens: kv?.free_tokens ?? null, kv_used_gb: kv?.used_gb ?? null, kv_free_gb: kv?.free_gb ?? null
+  }
+
+  logKvCacheDebug('insert_db', runId, {
+    table: 'metric_snapshots',
+    action: 'INSERT',
+    kv_cache_pct: s.kv_cache_pct,
+    kv_cache_object: kv,
+    all_values: values,
+  })
+
   db.prepare(`
     INSERT INTO metric_snapshots
       (run_id, ts, transport_ms, gpu_util, vram_used_mb, vram_total_mb,
@@ -24,6 +41,14 @@ export function insertSnapshot(runId: string, s: MetricsSnapshot) {
 // run_id is left NULL; chat_session_id carries the grouping key.
 export function insertChatSnapshot(sessionId: string, s: MetricsSnapshot) {
   const kv = s.kv_cache
+  logKvCacheDebug('insert_db', null, {
+    table: 'metric_snapshots',
+    action: 'INSERT (chat session)',
+    chat_session_id: sessionId,
+    kv_cache_pct: s.kv_cache_pct,
+    kv_cache_object: kv,
+  })
+
   db.prepare(`
     INSERT INTO metric_snapshots
       (run_id, chat_session_id, ts, transport_ms, gpu_util, vram_used_mb, vram_total_mb,

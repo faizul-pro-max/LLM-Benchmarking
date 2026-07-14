@@ -1,6 +1,7 @@
 import { Server } from 'socket.io'
 import { parseVllmMetrics } from './prometheusParser'
 import { insertSnapshot, insertChatSnapshot } from '../db/queries/snapshots'
+import { logKvCacheDebug } from './kvCacheDebugLogger'
 import type { MetricsSnapshot, KvCacheUsage } from '../types/metrics'
 import type { ServerToClientEvents, ClientToServerEvents } from '../types/socket'
 
@@ -78,7 +79,7 @@ const nullKvCache: KvCacheUsage = {
 // coercing to 0 (a real 0% usage must stay distinguishable from "unknown").
 function parseKvCache(raw: Record<string, unknown>): KvCacheUsage {
   const num = (v: unknown): number | null => (typeof v === 'number' ? v : null)
-  return {
+  const result = {
     total_tokens: num(raw.total_tokens),
     block_size: num(raw.block_size),
     total_gb: num(raw.total_gb),
@@ -88,6 +89,12 @@ function parseKvCache(raw: Record<string, unknown>): KvCacheUsage {
     used_gb: num(raw.used_gb),
     free_gb: num(raw.free_gb),
   }
+  logKvCacheDebug('parse_kv_cache', null, {
+    source: 'GPU agent /kv_cache endpoint',
+    raw,
+    parsed: result,
+  })
+  return result
 }
 
 async function fetchWithTimeout(url: string, ms = 2000, headers?: Record<string, string>): Promise<Response> {
@@ -125,7 +132,23 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
 
   if (kvCacheRes.status === 'fulfilled' && kvCacheRes.value.ok) {
     const raw = await (kvCacheRes.value as unknown as { json(): Promise<unknown> }).json() as Record<string, unknown>
+    logKvCacheDebug('fetch_agent', activeRunId, {
+      endpoint: '/kv_cache',
+      status: kvCacheRes.value.ok ? 'ok' : 'error',
+      raw_response: raw,
+    })
     kvCache = parseKvCache(raw)
+  } else if (kvCacheRes.status === 'rejected') {
+    logKvCacheDebug('fetch_agent', activeRunId, {
+      endpoint: '/kv_cache',
+      status: 'rejected',
+      error: String(kvCacheRes.reason),
+    })
+  } else {
+    logKvCacheDebug('fetch_agent', activeRunId, {
+      endpoint: '/kv_cache',
+      status: 'pending/not_ok',
+    })
   }
 
   if (gpuRes.status === 'fulfilled' && gpuRes.value.ok) {
@@ -147,6 +170,16 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
   if (vllmReachable) {
     const text = await (vllmRes.value as unknown as { text(): Promise<string> }).text()
     vllmData = parseVllmMetrics(text)
+    logKvCacheDebug('fetch_vllm', activeRunId, {
+      endpoint: '/metrics',
+      status: 'ok',
+      kv_cache_pct: vllmData.kv_cache_pct,
+    })
+  } else {
+    logKvCacheDebug('fetch_vllm', activeRunId, {
+      endpoint: '/metrics',
+      status: 'unreachable',
+    })
   }
 
   // Derive tokens/sec from the generation_tokens_total counter delta between polls.
@@ -177,7 +210,27 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
       used_gb: usedGb,
       free_gb: kvCache.total_gb != null && usedGb != null ? Math.round((kvCache.total_gb - usedGb) * 100) / 100 : null,
     }
+    logKvCacheDebug('compute_usage', activeRunId, {
+      computation: 'recompute from vLLM percentage',
+      vllm_kv_cache_pct: usagePct,
+      agent_capacity: {
+        total_tokens: kvCache.total_tokens,
+        block_size: kvCache.block_size,
+        total_gb: kvCache.total_gb,
+      },
+      computed_values: {
+        usage_percent: usagePct,
+        used_tokens: usedTokens,
+        free_tokens: kvCache.total_tokens != null && usedTokens != null ? kvCache.total_tokens - usedTokens : null,
+        used_gb: usedGb,
+        free_gb: kvCache.total_gb != null && usedGb != null ? Math.round((kvCache.total_gb - usedGb) * 100) / 100 : null,
+      },
+    })
   } else {
+    logKvCacheDebug('compute_usage', activeRunId, {
+      computation: 'vLLM unreachable, clearing computed fields',
+      kept_from_agent: kvCache,
+    })
     kvCache = { ...kvCache, usage_percent: null, used_tokens: null, free_tokens: null, used_gb: null, free_gb: null }
   }
 
@@ -204,7 +257,7 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
     tokens_per_sec = lastNonzeroTps
   }
 
-  return {
+  const snapshot = {
     ts: gpuData.ts ?? t0,
     transport_ms: gpuData.transport_ms ?? Date.now() - t0,
     gpu_util: gpuData.gpu_util ?? 0,
@@ -218,6 +271,13 @@ async function collectSnapshot(): Promise<MetricsSnapshot> {
     vllm_raw: vllmRaw,
     kv_cache: kvCache,
   }
+
+  logKvCacheDebug('emit_socket', activeRunId, {
+    kv_cache_pct: snapshot.kv_cache_pct,
+    kv_cache_full: kvCache,
+  })
+
+  return snapshot
 }
 
 // Always-on metrics loop. Starts a single 500ms interval that ALWAYS emits a

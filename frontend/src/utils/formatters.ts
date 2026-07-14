@@ -15,3 +15,21 @@ export const fmtDiff = (pct: number | undefined): string => {
   const sign = pct > 0 ? '+' : ''
   return `${sign}${pct.toFixed(1)}%`
 }
+
+export const fmtDuration = (ms: number | undefined): string => {
+  if (ms == null) return '—'
+  const seconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+
+  if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`
+  } else {
+    return `${seconds}s`
+  }
+}
+
+export const fmtNumber = (v: number | undefined): string =>
+  v == null ? '—' : v.toLocaleString()

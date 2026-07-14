@@ -8,7 +8,19 @@ const router = Router()
 router.get('/:runId', (req, res) => {
   const row = db.prepare(`SELECT * FROM aggregated_results WHERE run_id = ?`).get(req.params.runId)
   if (!row) { res.status(404).json({ error: 'not found' }); return }
-  res.json(row)
+
+  const run: any = db.prepare(`SELECT id, started_at, ended_at FROM runs WHERE id = ?`).get(req.params.runId)
+  const totalTokens = db.prepare(`
+    SELECT COALESCE(SUM(token_count), 0) as total FROM requests
+    WHERE run_id = ? AND phase = 'benchmark'
+  `).get(req.params.runId) as { total: number }
+
+  res.json({
+    ...row,
+    started_at: run?.started_at,
+    ended_at: run?.ended_at,
+    total_tokens_generated: totalTokens?.total ?? 0,
+  })
 })
 
 router.get('/:runId/requests', (req, res) => {

@@ -4,7 +4,7 @@ import { StatCards } from '@/components/metrics/StatCards'
 import { GpuChart } from '@/components/metrics/GpuChart'
 import { TpsChart } from '@/components/metrics/TpsChart'
 import { QueueBars } from '@/components/metrics/QueueBars'
-import { fmtMs, fmtTps, fmtPct } from '@/utils/formatters'
+import { fmtMs, fmtTps, fmtPct, fmtDuration, fmtNumber } from '@/utils/formatters'
 import type { MetricsSnapshot } from '@/types/metrics'
 import type { Run, AggregatedResult, RunConfig, RunPhase } from '@/types/experiment'
 import {
@@ -252,16 +252,36 @@ export function BenchmarksView() {
               {loadingDetail && !result ? (
                 <div className="text-xs text-muted">Loading…</div>
               ) : result ? (
-                <div className="grid grid-cols-4 gap-3">
-                  <SummaryStat label="TTFT P50" value={fmtMs(result.ttft_p50_ms)} />
-                  <SummaryStat label="TTFT P90" value={fmtMs(result.ttft_p90_ms)} />
-                  <SummaryStat label="TTFT P99" value={fmtMs(result.ttft_p99_ms)} />
-                  <SummaryStat label="TPOT P50" value={fmtMs(result.tpot_p50_ms)} />
-                  <SummaryStat label="Tok/s Avg" value={fmtTps(result.tokens_per_sec_avg)} />
-                  <SummaryStat label="Tok/s Peak" value={fmtTps(result.tokens_per_sec_peak)} />
-                  <SummaryStat label="GPU Util Avg" value={fmtPct(result.gpu_util_avg)} />
-                  <SummaryStat label="KV Cache Avg" value={fmtPct(result.kv_cache_avg)} />
-                </div>
+                <>
+                  {/* Timing info */}
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    {result.started_at && (
+                      <SummaryStat label="Started" value={fmtDate(result.started_at)} />
+                    )}
+                    {result.ended_at && (
+                      <SummaryStat label="Ended" value={fmtDate(result.ended_at)} />
+                    )}
+                    {result.started_at && result.ended_at && (
+                      <SummaryStat label="Duration" value={fmtDuration(result.ended_at - result.started_at)} />
+                    )}
+                  </div>
+                  {result.total_tokens_generated && (
+                    <div className="mb-3">
+                      <SummaryStat label="Total Tokens Generated" value={fmtNumber(result.total_tokens_generated)} />
+                    </div>
+                  )}
+                  {/* Performance metrics */}
+                  <div className="grid grid-cols-4 gap-3">
+                    <SummaryStat label="TTFT P50" value={fmtMs(result.ttft_p50_ms)} />
+                    <SummaryStat label="TTFT P90" value={fmtMs(result.ttft_p90_ms)} />
+                    <SummaryStat label="TTFT P99" value={fmtMs(result.ttft_p99_ms)} />
+                    <SummaryStat label="TPOT P50" value={fmtMs(result.tpot_p50_ms)} />
+                    <SummaryStat label="Tok/s Avg" value={fmtTps(result.tokens_per_sec_avg)} />
+                    <SummaryStat label="Tok/s Peak" value={fmtTps(result.tokens_per_sec_peak)} />
+                    <SummaryStat label="GPU Util Avg" value={fmtPct(result.gpu_util_avg)} />
+                    <SummaryStat label="KV Cache Avg" value={fmtPct(result.kv_cache_avg)} />
+                  </div>
+                </>
               ) : (
                 <div className="text-xs text-muted">No aggregated results for this run.</div>
               )}

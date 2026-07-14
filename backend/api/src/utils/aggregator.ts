@@ -17,7 +17,10 @@ function avg(arr: number[]): number {
   return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0
 }
 
-export function computeAggregatedResult(runId: string): AggregatedResult {
+/** @param networkRttMs Median vLLM RTT probed at run start (see networkProbe.ts).
+ *  Null when unavailable — the *_no_network_ms fields are then also null rather
+ *  than silently computed against a zero baseline. */
+export function computeAggregatedResult(runId: string, networkRttMs: number | null = null): AggregatedResult {
   const requests = db
     .prepare(`SELECT * FROM requests WHERE run_id = ? AND phase = 'benchmark'`)
     .all(runId) as Array<Record<string, number | string>>
@@ -36,6 +39,14 @@ export function computeAggregatedResult(runId: string): AggregatedResult {
   const byCategory = (cat: string) =>
     requests.filter((r) => r.category === cat).map((r) => r.ttft_ms as number).filter(Boolean)
 
+  // Network-excluded TTFT: subtract the measured baseline RTT from each
+  // request's client TTFT before taking percentiles, rather than subtracting
+  // from the percentile after the fact — preserves the correct distribution
+  // shape instead of just shifting a single summary number.
+  const ttftsNoNetwork = networkRttMs != null
+    ? ttfts.map((t) => Math.max(0, t - networkRttMs))
+    : []
+
   return {
     run_id: runId,
     ttft_p50_ms: pct(ttfts, 50),
@@ -45,6 +56,10 @@ export function computeAggregatedResult(runId: string): AggregatedResult {
     ttft_p50_random:        pct(byCategory('random'), 50),
     ttft_p50_shared_prefix: pct(byCategory('shared_prefix'), 50),
     ttft_p50_exact_repeat:  pct(byCategory('exact_repeat'), 50),
+    network_rtt_ms: networkRttMs,
+    ttft_p50_no_network_ms: ttftsNoNetwork.length ? pct(ttftsNoNetwork, 50) : null,
+    ttft_p90_no_network_ms: ttftsNoNetwork.length ? pct(ttftsNoNetwork, 90) : null,
+    ttft_p99_no_network_ms: ttftsNoNetwork.length ? pct(ttftsNoNetwork, 99) : null,
     tpot_p50_ms: pct(tpots, 50),
     tpot_p90_ms: pct(tpots, 90),
     tokens_per_sec_avg:  avg(tpsValues),
@@ -67,7 +82,8 @@ export function saveAggregatedResult(result: AggregatedResult) {
       @ttft_p50_random, @ttft_p50_shared_prefix, @ttft_p50_exact_repeat,
       @tpot_p50_ms, @tpot_p90_ms, @tokens_per_sec_avg, @tokens_per_sec_peak,
       @gpu_util_avg, @gpu_util_peak, @vram_peak_mb, @kv_cache_avg, @kv_cache_peak,
-      @total_requests, @warmup_excluded, @run_count
+      @total_requests, @warmup_excluded, @run_count,
+      @network_rtt_ms, @ttft_p50_no_network_ms, @ttft_p90_no_network_ms, @ttft_p99_no_network_ms
     )
   `).run(result)
 }

@@ -89,8 +89,8 @@ export function useSocket(): SocketState {
       setSchedulerUpdate(data)
     })
 
-    socket.on('phase:change', ({ phase, runId }: { phase: string; runId: string }) => {
-      setPhase(phase as Parameters<typeof setPhase>[0])
+    socket.on('phase:change', ({ phase, runId, network_rtt_ms }: { phase: string; runId: string; network_rtt_ms?: number | null }) => {
+      setPhase(phase as Parameters<typeof setPhase>[0], network_rtt_ms)
       // Final safety net: whatever caused a card to miss its live update, the
       // run reaching a terminal phase is the last guaranteed chance to patch
       // it from the authoritative persisted rows before the pipeline goes away.

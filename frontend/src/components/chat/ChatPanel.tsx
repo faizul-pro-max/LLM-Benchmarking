@@ -3,9 +3,11 @@ import { RunControls } from './RunControls'
 import { RequestCard } from './RequestCard'
 import { RequestDetailModal } from './RequestDetailModal'
 import { CategoryPills } from './CategoryPills'
+import { WorkloadPills } from './WorkloadPills'
 import { PhaseBanner } from '@/components/controls/PhaseBanner'
-import type { RunPhase } from '@/types/experiment'
+import type { RunPhase, Workload, QaMode } from '@/types/experiment'
 import type { RequestResult } from '@/types/metrics'
+import type { DatasetStatus } from '@/hooks/useDatasetStatus'
 
 interface ChatPanelProps {
   phase: RunPhase
@@ -14,6 +16,10 @@ interface ChatPanelProps {
   promptSource: 'sheets' | 'local'
   promptsByCategory: Record<string, number>
   promptCount: number
+  workload: Workload
+  qaMode: QaMode
+  datasetStatus: DatasetStatus
+  onDatasetLoaded: () => void
   description: string
   requests: Map<string, RequestResult>
   onStart: () => void
@@ -22,6 +28,8 @@ interface ChatPanelProps {
   onPromptCountChange: (n: number) => void
   onDescriptionChange: (html: string) => void
   onCategoryChange: (c: 'random' | 'shared_prefix' | 'exact_repeat') => void
+  onWorkloadChange: (w: Workload) => void
+  onQaModeChange: (m: QaMode) => void
 }
 
 export function ChatPanel({
@@ -31,6 +39,10 @@ export function ChatPanel({
   promptSource,
   promptsByCategory,
   promptCount,
+  workload,
+  qaMode,
+  datasetStatus,
+  onDatasetLoaded,
   description,
   requests,
   onStart,
@@ -39,7 +51,15 @@ export function ChatPanel({
   onPromptCountChange,
   onDescriptionChange,
   onCategoryChange,
+  onWorkloadChange,
+  onQaModeChange,
 }: ChatPanelProps) {
+  // Category (random/shared_prefix/exact_repeat) only ever governs the local/
+  // Sheets pool — qa never touches that pool at all, and short/long stop
+  // touching it once an HF dataset is loaded (see routes/run.ts) — so hide
+  // the pills whenever category plays no role in prompt selection, to avoid
+  // implying it still does something.
+  const showCategoryPills = workload !== 'qa' && !datasetStatus[workload].loaded
   const reqArray = useMemo(() => Array.from(requests.values()), [requests])
   const activeCount = reqArray.filter((r) => r.state === 'decoding' || r.state === 'prefilling').length
 
@@ -67,6 +87,7 @@ export function ChatPanel({
         onConcurrencyChange={onConcurrencyChange}
         promptCount={promptCount}
         onPromptCountChange={onPromptCountChange}
+        workload={workload}
         description={description}
         onDescriptionChange={onDescriptionChange}
         onStart={onStart}
@@ -93,12 +114,23 @@ export function ChatPanel({
         )}
       </div>
 
-      <CategoryPills
-        value={category}
-        onChange={onCategoryChange}
-        source={promptSource}
-        byCategory={promptsByCategory}
+      <WorkloadPills
+        value={workload}
+        onChange={onWorkloadChange}
+        qaMode={qaMode}
+        onQaModeChange={onQaModeChange}
+        datasetStatus={datasetStatus}
+        onDatasetLoaded={onDatasetLoaded}
       />
+
+      {showCategoryPills && (
+        <CategoryPills
+          value={category}
+          onChange={onCategoryChange}
+          source={promptSource}
+          byCategory={promptsByCategory}
+        />
+      )}
 
       {selected && (
         <RequestDetailModal

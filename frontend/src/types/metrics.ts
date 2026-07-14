@@ -39,6 +39,7 @@ export interface MetricsSnapshot {
 export type RequestState = 'queued' | 'prefilling' | 'decoding' | 'done' | 'error'
 export type RequestCategory = 'random' | 'shared_prefix' | 'exact_repeat'
 export type RequestPhase = 'warmup' | 'benchmark'
+export type RequestWorkload = 'short' | 'long' | 'qa'
 
 export interface RequestResult {
   id: string
@@ -60,6 +61,13 @@ export interface RequestResult {
   tpot_ms?: number
   finish_reason?: string
   error?: string
+  /** Prompt source workload this request was drawn from. */
+  workload?: RequestWorkload
+  /** Multi-turn Q&A (workload === 'qa'): id shared by every turn of the same
+   *  conversation. Absent for short/long. */
+  conversation_id?: string
+  /** Multi-turn Q&A: 0-based position of this turn within its conversation. */
+  turn_index?: number
 }
 
 /** Emitted by the load generator's own concurrency limiter while a run's
@@ -81,8 +89,12 @@ export interface RequestUpdate {
   prompt_text?: string
   prompt_id?: string
   category?: RequestCategory
+  workload?: RequestWorkload
+  conversation_id?: string
+  turn_index?: number
   ttft_ms?: number
   prefill_ms?: number
+  decode_ms?: number
   token_count?: number
   tokens_text?: string
   tpot_ms?: number

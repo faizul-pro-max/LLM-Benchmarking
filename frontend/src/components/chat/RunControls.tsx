@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import type { RunPhase } from '@/types/experiment'
+import type { RunPhase, Workload } from '@/types/experiment'
 import { RichTextEditor } from './RichTextEditor'
 
 interface RunControlsProps {
@@ -8,6 +8,7 @@ interface RunControlsProps {
   onConcurrencyChange: (v: number) => void
   promptCount: number
   onPromptCountChange: (n: number) => void
+  workload: Workload
   description: string
   onDescriptionChange: (html: string) => void
   onStart: () => void
@@ -20,6 +21,7 @@ export function RunControls({
   onConcurrencyChange,
   promptCount,
   onPromptCountChange,
+  workload,
   description,
   onDescriptionChange,
   onStart,
@@ -50,7 +52,7 @@ export function RunControls({
 
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-semibold text-muted uppercase tracking-wider whitespace-nowrap">
-            Prompts
+            {workload === 'qa' ? 'Conversations' : 'Prompts'}
           </span>
           <input
             type="number"

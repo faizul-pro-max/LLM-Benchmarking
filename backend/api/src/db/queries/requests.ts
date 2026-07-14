@@ -7,11 +7,13 @@ export function insertRequest(r: RequestResult) {
     INSERT INTO requests
       (id, run_id, run_number, prompt_id, category, phase, prompt_text,
        t0, t1, t2, t3, ttft_ms, prefill_ms, decode_ms, total_ms,
-       token_count, tpot_ms, finish_reason, error)
+       token_count, tpot_ms, finish_reason, error,
+       workload, conversation_id, turn_index)
     VALUES
       (@id, @run_id, @run_number, @prompt_id, @category, @phase, @prompt_text,
        @t0, @t1, @t2, @t3, @ttft_ms, @prefill_ms, @decode_ms, @total_ms,
-       @token_count, @tpot_ms, @finish_reason, @error)
+       @token_count, @tpot_ms, @finish_reason, @error,
+       @workload, @conversation_id, @turn_index)
   `).run({
     id: r.id,
     run_id: r.run_id,
@@ -32,6 +34,9 @@ export function insertRequest(r: RequestResult) {
     tpot_ms: r.tpot_ms ?? null,
     finish_reason: r.finish_reason ?? null,
     error: r.error ?? null,
+    workload: r.workload ?? null,
+    conversation_id: r.conversation_id ?? null,
+    turn_index: r.turn_index ?? null,
   })
 }
 

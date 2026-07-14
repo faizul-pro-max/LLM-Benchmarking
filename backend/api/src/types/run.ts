@@ -22,11 +22,28 @@ export interface ServerConfigSnapshot {
   }
 }
 
+/** Which prompt pool drives the run — orthogonal to `category` (which only
+ *  ever governs the local/Sheets pool's prefix-cache-testing structure).
+ *  'short'/'long' source from a HuggingFace dataset when one has been loaded
+ *  (see hfDatasetLoader.ts), falling back to the local/Sheets pool otherwise.
+ *  'qa' always sources multi-turn conversations from a HuggingFace dataset. */
+export type Workload = 'short' | 'long' | 'qa'
+
+/** Only meaningful when workload === 'qa'. 'sequential' runs each
+ *  conversation's turns in order with real chat history (see
+ *  loadGenerator.ts runQaConversations); 'flattened' bakes prior turns into
+ *  independent prompts and reuses the existing single-turn engine. */
+export type QaMode = 'sequential' | 'flattened'
+
 export interface RunConfig {
   name: string
   concurrency: number
   category: RequestCategory
   promptCount: number
+  /** Prompt source workload. Defaults to 'short'. */
+  workload?: Workload
+  /** Q&A execution mode. Only meaningful when workload === 'qa'. Defaults to 'sequential'. */
+  qaMode?: QaMode
   /** Optional rich-text (HTML) notes attached when starting the run. */
   description?: string
   /** LLM server snapshot recorded at run start. */
@@ -56,10 +73,19 @@ export interface RequestResult {
   tpot_ms?: number
   finish_reason?: string
   error?: string
+  /** Prompt source workload this request was drawn from. */
+  workload?: Workload
+  /** Multi-turn Q&A (workload === 'qa', sequential mode): id shared by every
+   *  turn of the same conversation. Absent for short/long and for flattened
+   *  qa mode (each turn is an independent request there). */
+  conversation_id?: string
+  /** 0-based position of this turn within its conversation. */
+  turn_index?: number
 }
 
 export interface AggregatedResult {
   run_id: string
+  /** Client-measured TTFT (t2 - t0) — includes network transit both ways. */
   ttft_p50_ms: number
   ttft_p90_ms: number
   ttft_p99_ms: number
@@ -67,6 +93,15 @@ export interface AggregatedResult {
   ttft_p50_random: number
   ttft_p50_shared_prefix: number
   ttft_p50_exact_repeat: number
+  /** Median RTT to the vLLM server, probed once at run start (see networkProbe.ts).
+   *  Null when vLLM isn't configured or every probe failed — in that case the
+   *  ttft_*_no_network_ms fields below are also null. */
+  network_rtt_ms: number | null
+  /** ttft_p50/p90/p99_ms with network_rtt_ms subtracted per request — an estimate
+   *  of server-only (compute) TTFT, not a direct vLLM-side measurement. */
+  ttft_p50_no_network_ms: number | null
+  ttft_p90_no_network_ms: number | null
+  ttft_p99_no_network_ms: number | null
   tpot_p50_ms: number
   tpot_p90_ms: number
   tokens_per_sec_avg: number
@@ -79,4 +114,7 @@ export interface AggregatedResult {
   total_requests: number
   warmup_excluded: number
   run_count: number
+  started_at?: number | null
+  ended_at?: number | null
+  total_tokens_generated?: number
 }

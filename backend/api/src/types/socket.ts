@@ -1,9 +1,13 @@
-import type { RunPhase, RequestState, AggregatedResult } from './run'
+import type { RunPhase, RequestState, AggregatedResult, Workload } from './run'
 import type { MetricsSnapshot } from './metrics'
 
 export interface PhaseChangePayload {
   phase: RunPhase
   runId: string
+  /** Median vLLM network RTT probed just before warmup starts (see
+   *  networkProbe.ts) — attached to the 'warmup' transition so the UI has it
+   *  for the whole run, not just after run:complete. Null if unavailable. */
+  network_rtt_ms?: number | null
 }
 
 export interface RequestUpdatePayload {
@@ -20,8 +24,16 @@ export interface RequestUpdatePayload {
   prompt_text?: string
   prompt_id?: string
   category?: 'random' | 'shared_prefix' | 'exact_repeat'
+  /** Prompt source workload this request was drawn from. */
+  workload?: Workload
+  /** Multi-turn Q&A (workload === 'qa'): id shared by every turn of the same
+   *  conversation. Absent for short/long. */
+  conversation_id?: string
+  /** Multi-turn Q&A: 0-based position of this turn within its conversation. */
+  turn_index?: number
   ttft_ms?: number
   prefill_ms?: number
+  decode_ms?: number
   token_count?: number
   tokens_text?: string
   tpot_ms?: number

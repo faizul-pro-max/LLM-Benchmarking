@@ -28,11 +28,27 @@ export interface ServerConfigSnapshot {
   }
 }
 
+/** Which prompt pool drives the run — orthogonal to `category` (which only
+ *  ever governs the local/Sheets pool's prefix-cache-testing structure).
+ *  'short'/'long' source from a HuggingFace dataset when one has been loaded,
+ *  falling back to the local/Sheets pool otherwise. 'qa' always sources
+ *  multi-turn conversations from HuggingFace. */
+export type Workload = 'short' | 'long' | 'qa'
+
+/** Only meaningful when workload === 'qa'. 'sequential' runs each
+ *  conversation's turns in order with real chat history; 'flattened' bakes
+ *  prior turns into independent prompts and reuses the single-turn engine. */
+export type QaMode = 'sequential' | 'flattened'
+
 export interface RunConfig {
   name: string
   concurrency: number
   category: 'random' | 'shared_prefix' | 'exact_repeat'
   promptCount: number
+  /** Prompt source workload. Defaults to 'short'. */
+  workload?: Workload
+  /** Q&A execution mode. Only meaningful when workload === 'qa'. Defaults to 'sequential'. */
+  qaMode?: QaMode
   /** Optional rich-text (HTML) notes the user attached when starting the run. */
   description?: string
   /** LLM server snapshot recorded at run start (present on stored runs). */
@@ -60,6 +76,10 @@ export interface AggregatedResult {
   ttft_p50_random: number
   ttft_p50_shared_prefix: number
   ttft_p50_exact_repeat: number
+  network_rtt_ms?: number | null
+  ttft_p50_no_network_ms?: number | null
+  ttft_p90_no_network_ms?: number | null
+  ttft_p99_no_network_ms?: number | null
   tpot_p50_ms: number
   tpot_p90_ms: number
   tokens_per_sec_avg: number
@@ -72,6 +92,9 @@ export interface AggregatedResult {
   total_requests: number
   warmup_excluded: number
   run_count: number
+  started_at?: number | null
+  ended_at?: number | null
+  total_tokens_generated?: number
 }
 
 export interface Experiment {
